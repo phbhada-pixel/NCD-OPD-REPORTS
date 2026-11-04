@@ -37,6 +37,7 @@ import {
   PatientSummary,
 } from './types/phc';
 import { ConfirmActionPayload, ConfirmModal } from './components/ConfirmModal';
+import { OpdEntryModal } from './components/OpdEntryModal';
 import { PrintPreviewModal, ReportPreviewData } from './components/PrintPreviewModal';
 
 type ActiveSection = 'opd' | 'date_reports' | 'village_reports' | 'master_lists';
@@ -52,6 +53,9 @@ export default function App() {
 
   // Navigation
   const [activeSection, setActiveSection] = useState<ActiveSection>('opd');
+
+  // OPD Form Popup Modal State
+  const [isOpdModalOpen, setIsOpdModalOpen] = useState<boolean>(false);
 
   // Mobile Patient Search Drawer/Collapse State
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState<boolean>(false);
@@ -91,7 +95,6 @@ export default function App() {
   const [formVillage, setFormVillage] = useState<string>('भादा');
   const [isOtherVillage, setIsOtherVillage] = useState<boolean>(false);
   const [otherVillageName, setOtherVillageName] = useState<string>('');
-  const [alsoAddToMasterVillages, setAlsoAddToMasterVillages] = useState<boolean>(false);
   const [disease, setDisease] = useState<string>('BP');
   const [bpReading, setBpReading] = useState<string>('');
   const [sugarReading, setSugarReading] = useState<string>('');
@@ -378,7 +381,7 @@ export default function App() {
   };
 
   // Handlers: Patient selection & form management
-  const handleSelectPatient = (p: PatientSummary) => {
+  const handleSelectPatient = (p: PatientSummary, openModal = true) => {
     setSelectedPatient(p);
     setOpdNo(nextSuggestedOpdNo);
     setFName(p.fName);
@@ -417,7 +420,14 @@ export default function App() {
       );
     }
     setIsMobileSearchOpen(false);
-    setActiveSection('opd');
+    if (openModal) {
+      setIsOpdModalOpen(true);
+    }
+  };
+
+  const handleOpenNewPatientModal = () => {
+    handleClearOpdForm();
+    setIsOpdModalOpen(true);
   };
 
   const handleRepeatLastPrescription = () => {
@@ -455,7 +465,6 @@ export default function App() {
     setMobile('');
     setIsOtherVillage(false);
     setOtherVillageName('');
-    setAlsoAddToMasterVillages(false);
     setFormVillage(villages[0] || 'भादा');
     setDisease('BP');
     setBpReading('');
@@ -495,7 +504,6 @@ export default function App() {
       .filter((m) => m.medName && m.qty);
 
     let finalVillage = formVillage;
-    let masterVillageToPersist: string | undefined;
 
     if (isOtherVillage || formVillage === '__OTHER__') {
       const cleanOther = otherVillageName.trim();
@@ -503,12 +511,7 @@ export default function App() {
         showNotice('error', 'कृपया इतर गावाचे नाव टाका.');
         return;
       }
-      if (alsoAddToMasterVillages) {
-        finalVillage = cleanOther;
-        masterVillageToPersist = cleanOther;
-      } else {
-        finalVillage = cleanOther.startsWith('इतर') ? cleanOther : `इतर (${cleanOther})`;
-      }
+      finalVillage = cleanOther.startsWith('इतर') ? cleanOther : `इतर (${cleanOther})`;
     }
 
     if (!opdNo.trim() || !fName.trim() || !finalVillage.trim()) {
@@ -565,18 +568,6 @@ export default function App() {
       onConfirm: async () => {
         setIsConfirmSubmitting(true);
         try {
-          if (masterVillageToPersist) {
-            const cleanV = masterVillageToPersist;
-            if (!villages.some((v) => v.toLowerCase() === cleanV.toLowerCase())) {
-              try {
-                await addMasterItemToPhbhadaSheet(PHBHADA_SCRIPT_WEB_APP_URL, 'Villages', cleanV);
-              } catch {
-                // non-fatal
-              }
-              setVillages((prev) => (prev.includes(cleanV) ? prev : [...prev, cleanV]));
-            }
-          }
-
           await saveRecordToPhbhadaSheet(PHBHADA_SCRIPT_WEB_APP_URL, submission);
 
           const displayDate = formatIsoToDisplay(submission.visitDate);
@@ -600,6 +591,7 @@ export default function App() {
 
           setRecords((prev) => [...prev, ...newRows]);
           setConfirmPayload(null);
+          setIsOpdModalOpen(false);
           handleClearOpdForm();
           showNotice(
             'success',
@@ -755,13 +747,11 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() => {
-              handleClearOpdForm();
-              setActiveSection('opd');
-            }}
-            className="px-3 sm:px-4 py-2 text-xs font-bold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 transition-colors whitespace-nowrap"
+            onClick={handleOpenNewPatientModal}
+            className="px-3 sm:px-4 py-2 text-xs font-bold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 transition-colors whitespace-nowrap flex items-center gap-1.5 shadow-xs"
           >
-            + नवीन रुग्ण
+            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>+ नवीन रुग्ण</span>
           </button>
         </div>
       </header>
@@ -851,42 +841,72 @@ export default function App() {
             SECTION 1: बाह्यरुग्ण नोंदणी (OPD)
            ===================================================================== */}
         {activeSection === 'opd' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
-            {/* MOBILE ONLY: Quick Search Collapsible Bar */}
-            <div className="lg:hidden bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setIsMobileSearchOpen(!isMobileSearchOpen)}
-                className="flex items-center gap-2 text-left flex-1 min-w-0"
-              >
-                <Search className="w-5 h-5 text-emerald-800 shrink-0" />
-                <div className="min-w-0">
-                  <span className="text-sm font-bold text-emerald-950 block truncate">
-                    {selectedPatient ? selectedPatient.fullName : '🔍 जुना रुग्ण शोधा (Search)'}
+          <div className="space-y-4 sm:space-y-6">
+            {/* Primary Action Banner */}
+            <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-emerald-900 text-white rounded-2xl p-4 sm:p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-700/80 text-emerald-100 text-xs font-bold uppercase tracking-wide">
+                    NCD बाह्यरुग्ण कक्ष
                   </span>
-                  <span className="text-xs text-emerald-700 block truncate">
-                    {selectedPatient
-                      ? `${selectedPatient.village} · ${selectedPatient.disease}`
-                      : 'गाव किंवा नावाने जुनी औषधे शोधा'}
+                  <span className="text-xs text-emerald-200 font-mono font-semibold">
+                    सुचवलेला OPD #{nextSuggestedOpdNo}
                   </span>
                 </div>
-              </button>
+                <h2 className="text-lg sm:text-2xl font-extrabold mt-1 text-white">
+                  बाह्यरुग्ण (OPD) व औषध वाटप
+                </h2>
+                <p className="text-xs sm:text-sm text-emerald-100 mt-1">
+                  नवीन रुग्णाची नोंदणी करण्यासाठी खालील बटण दाबा किंवा यादीतून जुना रुग्ण निवडून थेट औषध वाटप करा.
+                </p>
+              </div>
 
               <button
                 type="button"
-                onClick={() => setIsMobileSearchOpen(!isMobileSearchOpen)}
-                className="p-1.5 rounded-lg bg-emerald-100 text-emerald-900 shrink-0"
+                onClick={handleOpenNewPatientModal}
+                className="min-h-[48px] px-5 sm:px-6 py-3 bg-white text-emerald-900 hover:bg-emerald-50 active:scale-[0.98] font-extrabold text-sm sm:text-base rounded-xl flex items-center justify-center gap-2.5 shadow-md transition-all shrink-0 w-full sm:w-auto"
               >
-                {isMobileSearchOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                <Plus className="w-5 h-5 stroke-[2.5] text-emerald-700" />
+                <span>➕ नवीन रुग्ण फॉर्म उघडा (Popup)</span>
               </button>
             </div>
 
-            {/* LEFT COLUMN: जुना रुग्ण शोध पॅनल (Desktop always visible, Mobile collapsible) */}
-            <div
-              className={`lg:col-span-5 space-y-4 ${
-                isMobileSearchOpen ? 'block' : 'hidden lg:block'
-              }`}
-            >
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
+              {/* MOBILE ONLY: Quick Search Collapsible Bar */}
+              <div className="lg:hidden bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSearchOpen(!isMobileSearchOpen)}
+                  className="flex items-center gap-2 text-left flex-1 min-w-0"
+                >
+                  <Search className="w-5 h-5 text-emerald-800 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="text-sm font-bold text-emerald-950 block truncate">
+                      {selectedPatient ? selectedPatient.fullName : '🔍 जुना रुग्ण शोधा (Search)'}
+                    </span>
+                    <span className="text-xs text-emerald-700 block truncate">
+                      {selectedPatient
+                        ? `${selectedPatient.village} · ${selectedPatient.disease}`
+                        : 'गाव किंवा नावाने जुनी औषधे शोधा'}
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSearchOpen(!isMobileSearchOpen)}
+                  className="p-1.5 rounded-lg bg-emerald-100 text-emerald-900 shrink-0"
+                >
+                  {isMobileSearchOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </button>
+              </div>
+
+              {/* LEFT COLUMN: जुना रुग्ण शोध पॅनल (Desktop always visible, Mobile collapsible) */}
+              <div
+                className={`lg:col-span-7 space-y-4 ${
+                  isMobileSearchOpen ? 'block' : 'hidden lg:block'
+                }`}
+              >
               <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xs">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                   <div>
@@ -968,27 +988,47 @@ export default function App() {
                       return (
                         <div
                           key={p.key}
-                          onClick={() => handleSelectPatient(p)}
-                          className={`p-3 cursor-pointer transition-colors flex items-center justify-between gap-3 ${
-                            isSelected ? 'bg-emerald-50/90' : 'hover:bg-slate-50 active:bg-emerald-50/50'
+                          onClick={() => handleSelectPatient(p, false)}
+                          className={`p-3.5 cursor-pointer transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            isSelected
+                              ? 'bg-emerald-50/90 border-l-4 border-l-emerald-700'
+                              : 'hover:bg-slate-50'
                           }`}
                         >
-                          <div className="min-w-0">
-                            <div className="text-sm font-bold text-slate-900 truncate">
-                              {p.fullName}
-                            </div>
-                            <div className="text-xs text-slate-600 mt-0.5 flex flex-wrap items-center gap-1.5">
-                              <span className="font-semibold text-slate-800">{p.village}</span>
-                              <span>·</span>
-                              <span className="font-semibold text-red-700">{p.disease}</span>
-                              <span>·</span>
-                              <span className="font-mono tabular-nums">
-                                {p.lastVisitDate}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-slate-900 truncate">
+                                {p.fullName}
+                              </span>
+                              <span className="px-2 py-0.5 text-[11px] font-extrabold text-red-700 bg-red-50 border border-red-200 rounded-md shrink-0">
+                                {p.disease}
                               </span>
                             </div>
+                            <div className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
+                                {p.village}
+                              </span>
+                              <span>·</span>
+                              <span>{p.gender}</span>
+                              {p.mobile && (
+                                <>
+                                  <span>·</span>
+                                  <span className="font-mono tabular-nums">{p.mobile}</span>
+                                </>
+                              )}
+                              <span>·</span>
+                              <span className="font-mono tabular-nums text-slate-500">
+                                शेवटची भेट: {p.lastVisitDate}
+                              </span>
+                            </div>
+                            {p.lastMedicines.length > 0 && (
+                              <div className="text-[11px] text-slate-500 mt-1 truncate">
+                                औषधे: {p.lastMedicines.map((m) => `${m.medName} (${m.qty})`).join(', ')}
+                              </div>
+                            )}
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -998,11 +1038,31 @@ export default function App() {
                               className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg transition-colors"
                               title="उपचार कार्ड / PDF"
                             >
-                              <Printer className="w-4 h-4" />
+                              <Printer className="w-4 h-4 text-red-700" />
                             </button>
-                            <span className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-100 rounded-md">
-                              निवडा
-                            </span>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectPatient(p, false);
+                              }}
+                              className="px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                            >
+                              इतिहास
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectPatient(p, true);
+                              }}
+                              className="px-3 py-1.5 text-xs font-extrabold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs transition-colors flex items-center gap-1"
+                            >
+                              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>+ औषध द्या</span>
+                            </button>
                           </div>
                         </div>
                       );
@@ -1011,16 +1071,54 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Selected Patient's History Box */}
-              {fName && (
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <History className="w-4 h-4 text-slate-700" />
-                      <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                        जुना उपचार इतिहास
+            </div>
+
+
+            {/* RIGHT COLUMN: निवडलेला रुग्ण तपशील, जुना उपचार इतिहास व थेट ॲक्शन */}
+            <div className="lg:col-span-5 space-y-4">
+              {fName ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
+                  {/* Selected Patient Header */}
+                  <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 text-xs font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md">
+                          निवडलेला रुग्ण
+                        </span>
+                        <span className="px-2 py-0.5 text-xs font-extrabold text-red-700 bg-red-50 border border-red-200 rounded-md">
+                          {disease}
+                        </span>
+                      </div>
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 mt-1">
+                        {fName} {mName} {lName}
                       </h3>
+                      <p className="text-xs text-slate-600 font-semibold mt-0.5">
+                        {isOtherVillage && otherVillageName.trim()
+                          ? `इतर (${otherVillageName.trim()})`
+                          : formVillage}{' '}
+                        · {gender} {mobile ? `· 📞 ${mobile}` : ''}
+                      </p>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={handleClearOpdForm}
+                      className="px-2.5 py-1 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors shrink-0"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  {/* Primary OPD Action Buttons for Selected Patient */}
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsOpdModalOpen(true)}
+                      className="w-full min-h-[48px] px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-extrabold text-sm sm:text-base rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-5 h-5 stroke-[2.5]" />
+                      <span>➕ या रुग्णास औषध द्या (फॉर्म उघडा)</span>
+                    </button>
 
                     <button
                       type="button"
@@ -1031,497 +1129,112 @@ export default function App() {
                           lName,
                           gender,
                           mobile,
-                          village: formVillage,
+                          village:
+                            isOtherVillage && otherVillageName.trim()
+                              ? `इतर (${otherVillageName.trim()})`
+                              : formVillage,
                           disease,
                         })
                       }
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-white bg-red-700 hover:bg-red-800 rounded-lg transition-colors"
+                      className="w-full min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm rounded-xl border border-slate-300 transition-colors flex items-center justify-center gap-2"
                     >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>PDF कार्ड</span>
+                      <Printer className="w-4 h-4 text-red-700" />
+                      <span>रुग्ण उपचार कार्ड (PDF Print)</span>
                     </button>
                   </div>
 
-                  {selectedPatientHistory.length === 0 ? (
-                    <p className="text-xs text-slate-500 py-3 text-center">
-                      या रुग्णाचा मागील औषध इतिहास उपलब्ध नाही.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span className="font-semibold text-slate-800 truncate">
-                          {fName} {lName} ({formVillage})
-                        </span>
+                  {/* Treatment & Medicine History Box */}
+                  <div className="pt-2 border-t border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <History className="w-4 h-4 text-slate-700" />
+                        <h4 className="text-xs sm:text-sm font-extrabold text-slate-900">
+                          मागील उपचार व औषध इतिहास
+                        </h4>
+                      </div>
+
+                      {selectedPatientHistory.length > 0 && (
                         <button
                           type="button"
-                          onClick={handleRepeatLastPrescription}
+                          onClick={() => {
+                            handleRepeatLastPrescription();
+                            setIsOpdModalOpen(true);
+                          }}
                           className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 underline shrink-0"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
-                          <span>मागील औषधे घ्या</span>
+                          <span>मागील औषधे घ्या व फॉर्म उघडा</span>
                         </button>
-                      </div>
+                      )}
+                    </div>
 
-                      <div className="max-h-[220px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+                    {selectedPatientHistory.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-4 text-center bg-slate-50 rounded-xl">
+                        या रुग्णाचा मागील औषध वाटप इतिहास उपलब्ध नाही.
+                      </p>
+                    ) : (
+                      <div className="max-h-[300px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
                         {selectedPatientHistory.map((item, idx) => (
                           <div
                             key={idx}
-                            className="p-2.5 flex items-center justify-between gap-2 text-xs bg-white hover:bg-slate-50"
+                            className="p-3 flex items-center justify-between gap-2 text-xs bg-white hover:bg-slate-50"
                           >
                             <div>
-                              <div className="font-semibold text-slate-900">{item.medicine}</div>
-                              <div className="text-slate-500 font-mono tabular-nums text-[11px]">
+                              <div className="font-bold text-slate-900">{item.medicine}</div>
+                              <div className="text-slate-500 font-mono tabular-nums text-[11px] mt-0.5">
                                 {item.date} · OPD #{item.opd}
                               </div>
                             </div>
-                            <span className="font-mono tabular-nums font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md shrink-0">
+                            <span className="font-mono tabular-nums font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg shrink-0">
                               {item.qty} गोळ्या
                             </span>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* RIGHT COLUMN: बाह्यरुग्ण (OPD) व औषध वाटप नोंदणी फॉर्म */}
-            <div className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-5">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                <div>
-                  <h2 className="text-lg sm:text-xl font-extrabold text-slate-900">
-                    २. बाह्यरुग्ण (OPD) नोंदणी फॉर्म
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    आजची OPD भेट व वाटप केलेली औषधे नोंदवा
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleClearOpdForm}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors shrink-0"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Clear</span>
-                </button>
-              </div>
-
-              <form onSubmit={handleRequestSaveOpd} className="space-y-4 sm:space-y-5">
-                {/* Row 1: Date & OPD Number */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label
-                      htmlFor="visit-date"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      दिनांक (Date):
-                    </label>
-                    <input
-                      id="visit-date"
-                      type="date"
-                      value={visitDate}
-                      onChange={(e) => setVisitDate(e.target.value)}
-                      required
-                      className="w-full h-12 px-3 text-base font-bold font-mono tabular-nums bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label
-                        htmlFor="opd-no"
-                        className="block text-xs sm:text-sm font-extrabold text-red-700"
-                      >
-                        OPD क्रमांक: *
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setOpdNo(nextSuggestedOpdNo)}
-                        className="text-xs font-semibold text-emerald-700 hover:underline font-mono tabular-nums"
-                      >
-                        सुचवलेला: #{nextSuggestedOpdNo}
-                      </button>
-                    </div>
-                    <input
-                      id="opd-no"
-                      type="text"
-                      inputMode="numeric"
-                      value={opdNo}
-                      onChange={(e) => setOpdNo(e.target.value)}
-                      placeholder="उदा. 105"
-                      required
-                      className="w-full h-12 px-3 text-lg font-extrabold font-mono tabular-nums bg-white border border-slate-400 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* Row 2: First Name, Middle Name, Last Name */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                  <div>
-                    <label
-                      htmlFor="f-name"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      रुग्णाचे नाव: *
-                    </label>
-                    <input
-                      id="f-name"
-                      type="text"
-                      value={fName}
-                      onChange={(e) => setFName(e.target.value)}
-                      placeholder="पहिले नाव"
-                      required
-                      className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="m-name"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      मधले नाव:
-                    </label>
-                    <input
-                      id="m-name"
-                      type="text"
-                      value={mName}
-                      onChange={(e) => setMName(e.target.value)}
-                      placeholder="वडिलांचे/पतीचे नाव"
-                      className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="l-name"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      आडनाव:
-                    </label>
-                    <input
-                      id="l-name"
-                      type="text"
-                      value={lName}
-                      onChange={(e) => setLName(e.target.value)}
-                      placeholder="आडनाव"
-                      className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* Row 3: Gender, Mobile, Village */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                  <div>
-                    <label
-                      htmlFor="gender"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      लिंग (Gender):
-                    </label>
-                    <select
-                      id="gender"
-                      value={gender}
-                      onChange={(e) => setGender(e.target.value)}
-                      className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    >
-                      <option value="Male (पुरुष)">Male (पुरुष)</option>
-                      <option value="Female (स्त्री)">Female (स्त्री)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="mobile"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      मोबाईल:
-                    </label>
-                    <input
-                      id="mobile"
-                      type="tel"
-                      maxLength={10}
-                      value={mobile}
-                      onChange={(e) => setMobile(e.target.value)}
-                      placeholder="98XXXXXXXX"
-                      className="w-full h-12 px-3 text-base font-bold font-mono tabular-nums bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label
-                        htmlFor="form-village"
-                        className="block text-xs sm:text-sm font-bold text-slate-800"
-                      >
-                        गाव (Village): *
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextState = !isOtherVillage;
-                          setIsOtherVillage(nextState);
-                          if (nextState) {
-                            setFormVillage('__OTHER__');
-                          } else {
-                            setFormVillage(villages[0] || 'भादा');
-                            setOtherVillageName('');
-                          }
-                        }}
-                        className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center gap-1"
-                      >
-                        {isOtherVillage ? '← यादीतून निवडा' : '➕ इतर गाव'}
-                      </button>
-                    </div>
-
-                    {!isOtherVillage ? (
-                      <select
-                        id="form-village"
-                        value={formVillage}
-                        onChange={(e) => {
-                          if (e.target.value === '__OTHER__') {
-                            setIsOtherVillage(true);
-                            setFormVillage('__OTHER__');
-                          } else {
-                            setFormVillage(e.target.value);
-                          }
-                        }}
-                        required
-                        className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                      >
-                        {villages.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                        <option value="__OTHER__" className="text-emerald-700 font-bold">
-                          ➕ इतर गाव (यादीत नसलेले नवीन गाव)
-                        </option>
-                      </select>
-                    ) : (
-                      <div className="space-y-2">
-                        <input
-                          id="other-village-name"
-                          type="text"
-                          value={otherVillageName}
-                          onChange={(e) => setOtherVillageName(e.target.value)}
-                          placeholder="इतर गावाचे नाव टाका (उदा. तांदुळजा, किल्लारी)"
-                          autoFocus
-                          required
-                          className="w-full h-12 px-3 text-base font-bold bg-amber-50/60 border-2 border-emerald-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
-                        />
-
-                        <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1.5">
-                          <div className="flex items-center gap-1.5 font-bold">
-                            <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                            <span>हे गाव गावनिहाय यादीमध्ये "इतर" म्हणून दिसेल.</span>
-                          </div>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 pt-0.5">
-                            <input
-                              type="checkbox"
-                              checked={alsoAddToMasterVillages}
-                              onChange={(e) => setAlsoAddToMasterVillages(e.target.checked)}
-                              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
-                            />
-                            <span>या गावाला मुख्य यादीतही जोडा (Master List)</span>
-                          </label>
-                        </div>
-                      </div>
                     )}
                   </div>
                 </div>
-
-                {/* Row 4: Diagnosis & optional Vitals */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                  <div>
-                    <label
-                      htmlFor="disease"
-                      className="block text-xs sm:text-sm font-extrabold text-red-700 mb-1"
-                    >
-                      आजार (Diagnosis): *
-                    </label>
-                    <select
-                      id="disease"
-                      value={disease}
-                      onChange={(e) => setDisease(e.target.value)}
-                      className="w-full h-12 px-3 text-base font-extrabold text-red-700 bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    >
-                      <option value="BP">Blood Pressure (BP)</option>
-                      <option value="Diabetes">Diabetes (Sugar)</option>
-                      <option value="Both">Both (BP + Sugar)</option>
-                      <option value="Other">Other (इतर)</option>
-                    </select>
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 space-y-5 shadow-xs text-center">
+                  <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shadow-inner">
+                    <UserPlus className="w-7 h-7" />
                   </div>
 
-                  <div>
-                    <label
-                      htmlFor="bp-reading"
-                      className="block text-xs sm:text-sm font-bold text-slate-700 mb-1"
-                    >
-                      रक्तदाब (BP):
-                    </label>
-                    <input
-                      id="bp-reading"
-                      type="text"
-                      value={bpReading}
-                      onChange={(e) => setBpReading(e.target.value)}
-                      placeholder="उदा. 130/80"
-                      className="w-full h-12 px-3 text-base font-semibold font-mono tabular-nums bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
+                  <div className="space-y-1.5 max-w-sm mx-auto">
+                    <h3 className="text-base sm:text-lg font-black text-slate-900">
+                      नवीन रुग्ण किंवा जुना रुग्ण
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                      नवीन रुग्णाची नोंदणी करण्यासाठी खालील बटण दाबा, किंवा डावीकडील यादीतून जुना रुग्ण निवडून थेट औषध वाटप करा.
+                    </p>
                   </div>
-
-                  <div>
-                    <label
-                      htmlFor="sugar-reading"
-                      className="block text-xs sm:text-sm font-bold text-slate-700 mb-1"
-                    >
-                      रक्त शर्करा (BSL):
-                    </label>
-                    <input
-                      id="sugar-reading"
-                      type="text"
-                      value={sugarReading}
-                      onChange={(e) => setSugarReading(e.target.value)}
-                      placeholder="उदा. 140"
-                      className="w-full h-12 px-3 text-base font-semibold font-mono tabular-nums bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* Medicine Dispensing Rows */}
-                <div className="pt-2 border-t border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Pill className="w-5 h-5 text-emerald-700" />
-                      <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                        दिलेली औषधे व मात्रा (Medicines)
-                      </h3>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleAddMedicineRow}
-                      className="inline-flex items-center gap-1 px-3 py-2 text-xs font-extrabold text-slate-900 bg-amber-400 hover:bg-amber-500 rounded-xl transition-colors shadow-xs"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>+ औषध जोडा</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    {medRows.map((row, index) => (
-                      <div
-                        key={row.id}
-                        className="p-3 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-xs font-bold text-slate-700">
-                            औषध #{index + 1}:
-                          </span>
-                          {medRows.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveMedicineRow(row.id)}
-                              className="text-xs font-semibold text-red-600 hover:text-red-800 p-1 flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>काढा</span>
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-                          <div className="sm:col-span-8">
-                            <select
-                              value={row.medName}
-                              onChange={(e) =>
-                                handleUpdateMedicineRow(row.id, 'medName', e.target.value)
-                              }
-                              className="w-full h-12 px-3 text-sm font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700"
-                            >
-                              {medicines.map((m) => (
-                                <option key={m} value={m}>
-                                  {m}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="sm:col-span-4">
-                            <input
-                              type="number"
-                              min={1}
-                              value={row.qty}
-                              onChange={(e) =>
-                                handleUpdateMedicineRow(row.id, 'qty', e.target.value)
-                              }
-                              placeholder="मात्रा (Qty)"
-                              className="w-full h-12 px-3 text-base font-extrabold font-mono tabular-nums bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Large Quick Quantity Tap Chips */}
-                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                          <span className="text-[11px] font-semibold text-slate-500 mr-1">
-                            जलद मात्रा:
-                          </span>
-                          {['15', '30', '60', '90', '120'].map((presetQty) => (
-                            <button
-                              key={presetQty}
-                              type="button"
-                              onClick={() => handleUpdateMedicineRow(row.id, 'qty', presetQty)}
-                              className={`min-h-[36px] px-3 text-xs font-mono tabular-nums font-bold rounded-lg border transition-all ${
-                                row.qty === presetQty
-                                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                                  : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-100 active:scale-95'
-                              }`}
-                            >
-                              {presetQty}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Primary Action Buttons */}
-                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                  {fName ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openPatientCardModal({
-                          fName,
-                          mName,
-                          lName,
-                          gender,
-                          mobile,
-                          village: formVillage,
-                          disease,
-                        })
-                      }
-                      className="inline-flex items-center justify-center gap-2 min-h-[48px] px-4 text-sm font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors"
-                    >
-                      <Printer className="w-4 h-4 text-red-700" />
-                      <span>रुग्ण उपचार कार्ड (PDF)</span>
-                    </button>
-                  ) : (
-                    <div />
-                  )}
 
                   <button
-                    type="submit"
-                    className="inline-flex items-center justify-center gap-2 min-h-[50px] px-8 text-base font-extrabold text-white bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] rounded-xl shadow-md transition-all whitespace-nowrap"
+                    type="button"
+                    onClick={handleOpenNewPatientModal}
+                    className="w-full min-h-[50px] px-6 py-3 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-extrabold text-sm sm:text-base rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
                   >
-                    <CheckCircle2 className="w-5 h-5" />
-                    <span>💾 माहिती साठवा (SAVE RECORD)</span>
+                    <Plus className="w-5 h-5 stroke-[2.5]" />
+                    <span>➕ नवीन रुग्ण फॉर्म उघडा (Popup)</span>
                   </button>
+
+                  <div className="pt-4 border-t border-slate-200 grid grid-cols-2 gap-3 text-left">
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="text-[11px] text-slate-500 font-semibold">सुचवलेला OPD क्र.</div>
+                      <div className="text-base font-black text-emerald-700 font-mono mt-0.5">
+                        #{nextSuggestedOpdNo}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="text-[11px] text-slate-500 font-semibold">एकूण नोंदणीकृत रुग्ण</div>
+                      <div className="text-base font-black text-slate-800 font-mono mt-0.5">
+                        {allPatients.length}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </form>
+              )}
+            </div>
             </div>
           </div>
         )}
@@ -2331,6 +2044,66 @@ export default function App() {
           </button>
         </div>
       </nav>
+
+      {/* OPD Patient & Medicine Dispensing Modal (Popup) */}
+      <OpdEntryModal
+        isOpen={isOpdModalOpen}
+        onClose={() => setIsOpdModalOpen(false)}
+        visitDate={visitDate}
+        setVisitDate={setVisitDate}
+        opdNo={opdNo}
+        setOpdNo={setOpdNo}
+        nextSuggestedOpdNo={nextSuggestedOpdNo}
+        fName={fName}
+        setFName={setFName}
+        mName={mName}
+        setMName={setMName}
+        lName={lName}
+        setLName={setLName}
+        gender={gender}
+        setGender={setGender}
+        mobile={mobile}
+        setMobile={setMobile}
+        formVillage={formVillage}
+        setFormVillage={setFormVillage}
+        isOtherVillage={isOtherVillage}
+        setIsOtherVillage={setIsOtherVillage}
+        otherVillageName={otherVillageName}
+        setOtherVillageName={setOtherVillageName}
+        villages={villages}
+        disease={disease}
+        setDisease={setDisease}
+        bpReading={bpReading}
+        setBpReading={setBpReading}
+        sugarReading={sugarReading}
+        setSugarReading={setSugarReading}
+        medRows={medRows}
+        medicines={medicines}
+        onAddMedicineRow={handleAddMedicineRow}
+        onUpdateMedicineRow={handleUpdateMedicineRow}
+        onRemoveMedicineRow={handleRemoveMedicineRow}
+        onRepeatLastPrescription={handleRepeatLastPrescription}
+        hasPatientHistory={selectedPatientHistory.length > 0}
+        onClearForm={handleClearOpdForm}
+        onSubmit={handleRequestSaveOpd}
+        onOpenCardModal={
+          fName
+            ? () =>
+                openPatientCardModal({
+                  fName,
+                  mName,
+                  lName,
+                  gender,
+                  mobile,
+                  village:
+                    isOtherVillage && otherVillageName.trim()
+                      ? `इतर (${otherVillageName.trim()})`
+                      : formVillage,
+                  disease,
+                })
+            : undefined
+        }
+      />
 
       {/* Confirmation Modal */}
       <ConfirmModal

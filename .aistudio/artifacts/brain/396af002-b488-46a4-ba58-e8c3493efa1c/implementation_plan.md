@@ -10,9 +10,10 @@ Optimize the PHC Bhada NCD OPD web application into a touch-first, mobile-ergono
 > All changes are 100% focused on mobile ergonomics and touch responsiveness. The hardcoded Google Apps Script Web App connection to **`phbhada@gmail.com`** is preserved exactly as configured, with zero login barriers or credential inputs required.
 
 - **Confirmed Decision 1**: Modern fixed bottom navigation bar on mobile with 4 ergonomic thumb-friendly tabs (OPD नोंदणी, दिनांक अहवाल, गाव यादी, औषधे/गावे).
-- **Confirmed Decision 2**: Touch-friendly OPD registration form with large touch targets ($\ge 44\text{px}$), bold Devanagari typography, and 1-tap tablet quantity presets.
-- **Confirmed Decision 3**: Quick patient search drawer/sheet that slides up or expands smoothly on mobile so doctors can quickly look up records without scrolling through massive tables.
-- **Confirmed Decision 4**: Mobile-responsive card layouts for patient history, date-wise medicine dispensing summaries, and village patient registers with clean printable cards.
+- **Confirmed Decision 2**: OPD Patient Registration & Dispensing Form opens in a dedicated, high-contrast Popup Modal (`OpdEntryModal`) on both mobile and desktop upon tapping "+ नवीन रुग्ण", "+ औषध द्या", or the top banner.
+- **Confirmed Decision 3**: Touch-friendly OPD registration form with large touch targets ($\ge 44\text{px}$), bold Devanagari typography, inline other village adder, and 1-tap tablet quantity presets (15, 30, 60, 90, 120).
+- **Confirmed Decision 4**: Quick patient search drawer/sheet that slides up or expands smoothly on mobile so doctors can quickly look up records without scrolling through massive tables.
+- **Confirmed Decision 5**: Mobile-responsive card layouts for patient history, date-wise medicine dispensing summaries, and village patient registers with clean printable cards.
 
 ---
 
