@@ -1,0 +1,2140 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  History,
+  Pill,
+  Plus,
+  Printer,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+  UserPlus,
+} from 'lucide-react';
+import {
+  addMasterItemToPhbhadaSheet,
+  buildPatientSummaries,
+  DEFAULT_MEDICINES,
+  DEFAULT_VILLAGES,
+  fetchFromPhbhadaAppsScript,
+  formatIsoToDisplay,
+  getPatientHistoryFromRecords,
+  loadAttachedPhcDataset,
+  PHBHADA_SCRIPT_WEB_APP_URL,
+  saveRecordToPhbhadaSheet,
+} from './services/sheetsService';
+import {
+  MedicineRowInput,
+  OpdRowRecord,
+  OpdSubmissionForm,
+  PatientSummary,
+} from './types/phc';
+import { ConfirmActionPayload, ConfirmModal } from './components/ConfirmModal';
+import { PrintPreviewModal, ReportPreviewData } from './components/PrintPreviewModal';
+
+type ActiveSection = 'opd' | 'date_reports' | 'village_reports' | 'master_lists';
+
+export default function App() {
+  const todayIso = useMemo(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
+
+  // Navigation
+  const [activeSection, setActiveSection] = useState<ActiveSection>('opd');
+
+  // Sync state with permanently hardcoded phbhada@gmail.com Apps Script URL
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Core Data State (Records, Medicines, Villages)
+  const [records, setRecords] = useState<OpdRowRecord[]>([]);
+  const [medicines, setMedicines] = useState<string[]>(DEFAULT_MEDICINES);
+  const [villages, setVillages] = useState<string[]>(DEFAULT_VILLAGES);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+
+  // Status Banner
+  const [bannerMessage, setBannerMessage] = useState<{
+    type: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
+
+  // Confirmation & Report Preview Modals
+  const [confirmPayload, setConfirmPayload] = useState<ConfirmActionPayload | null>(null);
+  const [isConfirmSubmitting, setIsConfirmSubmitting] = useState<boolean>(false);
+  const [previewReport, setPreviewReport] = useState<ReportPreviewData | null>(null);
+
+  // Section 1: OPD Search & Entry Form State
+  const [searchVillage, setSearchVillage] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null);
+
+  const [visitDate, setVisitDate] = useState<string>(todayIso);
+  const [opdNo, setOpdNo] = useState<string>('');
+  const [fName, setFName] = useState<string>('');
+  const [mName, setMName] = useState<string>('');
+  const [lName, setLName] = useState<string>('');
+  const [gender, setGender] = useState<string>('Male (पुरुष)');
+  const [mobile, setMobile] = useState<string>('');
+  const [formVillage, setFormVillage] = useState<string>('भादा');
+  const [disease, setDisease] = useState<string>('BP');
+  const [bpReading, setBpReading] = useState<string>('');
+  const [sugarReading, setSugarReading] = useState<string>('');
+  const [medRows, setMedRows] = useState<MedicineRowInput[]>([
+    { id: 'med-1', medName: 'Telmisartan 40 Mg', qty: '30' },
+  ]);
+
+  // Section 2: Date-wise Reports State
+  const [dateReportMode, setDateReportMode] = useState<'register' | 'patient_timeline'>('register');
+  const [fromDateFilter, setFromDateFilter] = useState<string>('2026-01-01');
+  const [toDateFilter, setToDateFilter] = useState<string>('2026-12-31');
+  const [dateReportVillage, setDateReportVillage] = useState<string>('ALL');
+  const [dateReportDisease, setDateReportDisease] = useState<string>('ALL');
+  const [dateReportMedicine, setDateReportMedicine] = useState<string>('ALL');
+  const [timelineSearch, setTimelineSearch] = useState<string>('');
+
+  // Section 3: Village-wise Reports State
+  const [villageReportFilter, setVillageReportFilter] = useState<string>('भादा');
+  const [villageDiseaseFilter, setVillageDiseaseFilter] = useState<string>('ALL');
+  const [villageSearchQuery, setVillageSearchQuery] = useState<string>('');
+
+  // Section 4: Master Data Input State (Medicines & Villages)
+  const [newMedicineName, setNewMedicineName] = useState<string>('');
+  const [newVillageName, setNewVillageName] = useState<string>('');
+
+  const showNotice = (type: 'success' | 'error' | 'info', text: string) => {
+    setBannerMessage({ type, text });
+  };
+
+  // Load initial phbhada@gmail.com Google Sheet data via hardcoded Apps Script URL
+  useEffect(() => {
+    let mounted = true;
+
+    async function initData() {
+      try {
+        const liveData = await fetchFromPhbhadaAppsScript(PHBHADA_SCRIPT_WEB_APP_URL);
+        if (!mounted) return;
+        setRecords(liveData.records);
+        setMedicines(liveData.medicines);
+        setVillages(liveData.villages);
+        setIsInitialLoading(false);
+        return;
+      } catch {
+        const dataset = await loadAttachedPhcDataset();
+        if (!mounted) return;
+        setRecords(dataset.records);
+        setMedicines(dataset.medicines);
+        setVillages(dataset.villages);
+        setIsInitialLoading(false);
+      }
+    }
+
+    initData();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Derived unique patient summaries across all records
+  const allPatients = useMemo(() => buildPatientSummaries(records), [records]);
+
+  // Suggested next OPD number
+  const nextSuggestedOpdNo = useMemo(() => {
+    let maxOpd = 0;
+    records.forEach((r) => {
+      const n = parseInt(r.opdNo, 10);
+      if (!isNaN(n) && n > maxOpd && n < 100000) {
+        maxOpd = n;
+      }
+    });
+    return String(maxOpd + 1);
+  }, [records]);
+
+  // Filtered patients for OPD search panel
+  const searchedPatients = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return allPatients.filter((p) => {
+      const vilMatch = searchVillage === 'ALL' || p.village === searchVillage;
+      if (!vilMatch) return false;
+      if (!q) return true;
+      return (
+        p.fullName.toLowerCase().includes(q) ||
+        p.fName.toLowerCase().includes(q) ||
+        p.lName.toLowerCase().includes(q) ||
+        p.mobile.toLowerCase().includes(q) ||
+        p.lastOpdNo.toLowerCase().includes(q)
+      );
+    });
+  }, [allPatients, searchVillage, searchQuery]);
+
+  // Selected patient's date-wise history
+  const selectedPatientHistory = useMemo(() => {
+    if (!fName.trim() || !lName.trim() || !formVillage.trim()) {
+      if (selectedPatient) {
+        return getPatientHistoryFromRecords(records, selectedPatient);
+      }
+      return [];
+    }
+    return getPatientHistoryFromRecords(records, {
+      fName,
+      lName,
+      village: formVillage,
+    });
+  }, [records, fName, lName, formVillage, selectedPatient]);
+
+  // Filtered records for Date-wise Report (Section 2)
+  const dateFilteredRecords = useMemo(() => {
+    return records.filter((r) => {
+      if (fromDateFilter && r.isoDate < fromDateFilter) return false;
+      if (toDateFilter && r.isoDate > toDateFilter) return false;
+      if (dateReportVillage !== 'ALL' && r.village !== dateReportVillage) return false;
+      if (dateReportDisease !== 'ALL' && r.disease !== dateReportDisease) return false;
+      if (dateReportMedicine !== 'ALL' && r.medName !== dateReportMedicine) return false;
+      return true;
+    });
+  }, [
+    records,
+    fromDateFilter,
+    toDateFilter,
+    dateReportVillage,
+    dateReportDisease,
+    dateReportMedicine,
+  ]);
+
+  // Medicine-wise consumption totals for Date-wise Report
+  const medicineConsumptionTotals = useMemo(() => {
+    const map = new Map<string, { medName: string; totalQty: number; prescriptionCount: number }>();
+    dateFilteredRecords.forEach((r) => {
+      if (!r.medName || r.medName === '-') return;
+      const key = r.medName.trim();
+      const qtyNum = parseInt(r.qty, 10) || 0;
+      const existing = map.get(key);
+      if (existing) {
+        existing.totalQty += qtyNum;
+        existing.prescriptionCount += 1;
+      } else {
+        map.set(key, {
+          medName: key,
+          totalQty: qtyNum,
+          prescriptionCount: 1,
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.totalQty - a.totalQty);
+  }, [dateFilteredRecords]);
+
+  // Grouped patient multi-date timeline for Date-wise Report sub-view
+  const patientDateTimelines = useMemo(() => {
+    const q = timelineSearch.trim().toLowerCase();
+    return allPatients
+      .filter((p) => {
+        if (dateReportVillage !== 'ALL' && p.village !== dateReportVillage) return false;
+        if (dateReportDisease !== 'ALL' && p.disease !== dateReportDisease) return false;
+        if (q && !p.fullName.toLowerCase().includes(q) && !p.village.toLowerCase().includes(q)) {
+          return false;
+        }
+        return true;
+      })
+      .map((p) => {
+        const history = getPatientHistoryFromRecords(records, p).filter((h) => {
+          if (fromDateFilter && h.isoDate < fromDateFilter) return false;
+          if (toDateFilter && h.isoDate > toDateFilter) return false;
+          if (dateReportMedicine !== 'ALL' && h.medicine !== dateReportMedicine) return false;
+          return true;
+        });
+        return { patient: p, history };
+      })
+      .filter((item) => item.history.length > 0);
+  }, [
+    allPatients,
+    records,
+    dateReportVillage,
+    dateReportDisease,
+    dateReportMedicine,
+    fromDateFilter,
+    toDateFilter,
+    timelineSearch,
+  ]);
+
+  // Filtered patients for Village-wise Report (Section 3)
+  const villageFilteredPatients = useMemo(() => {
+    const q = villageSearchQuery.trim().toLowerCase();
+    return allPatients
+      .filter((p) => {
+        if (villageReportFilter !== 'ALL' && p.village !== villageReportFilter) return false;
+        if (villageDiseaseFilter !== 'ALL' && p.disease !== villageDiseaseFilter) return false;
+        if (
+          q &&
+          !p.fullName.toLowerCase().includes(q) &&
+          !p.mobile.toLowerCase().includes(q) &&
+          !p.disease.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.fullName.localeCompare(b.fullName, 'mr'));
+  }, [allPatients, villageReportFilter, villageDiseaseFilter, villageSearchQuery]);
+
+  // Village-wise patient count breakdown
+  const villageCountsSummary = useMemo(() => {
+    const map = new Map<
+      string,
+      { village: string; total: number; bp: number; diabetes: number; both: number }
+    >();
+    allPatients.forEach((p) => {
+      const v = p.village || 'इतर';
+      const entry = map.get(v) || { village: v, total: 0, bp: 0, diabetes: 0, both: 0 };
+      entry.total += 1;
+      if (p.disease === 'BP') entry.bp += 1;
+      else if (p.disease === 'Diabetes') entry.diabetes += 1;
+      else if (p.disease === 'Both') entry.both += 1;
+      map.set(v, entry);
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [allPatients]);
+
+  // Refresh data from hardcoded phbhada@gmail.com Apps Script Web App
+  const handleSyncFromPhbhadaSheet = async () => {
+    setIsSyncing(true);
+    try {
+      const dataset = await fetchFromPhbhadaAppsScript(PHBHADA_SCRIPT_WEB_APP_URL);
+      setRecords(dataset.records);
+      setMedicines(dataset.medicines);
+      setVillages(dataset.villages);
+      showNotice(
+        'success',
+        `गुगल शीटमधून ${dataset.records.length} नोंदी यशस्वीरित्या रिफ्रेश झाल्या!`
+      );
+    } catch (err: any) {
+      showNotice('error', err?.message || 'शीट रिफ्रेश करताना त्रुटी आली.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Handlers: Patient selection & form management
+  const handleSelectPatient = (p: PatientSummary) => {
+    setSelectedPatient(p);
+    setOpdNo(nextSuggestedOpdNo);
+    setFName(p.fName);
+    setMName(p.mName);
+    setLName(p.lName);
+    setGender(p.gender || 'Male (पुरुष)');
+    setMobile(p.mobile || '');
+    setFormVillage(p.village || villages[0] || 'भादा');
+    setDisease(p.disease || 'BP');
+    if (p.lastMedicines.length > 0) {
+      setMedRows(
+        p.lastMedicines.map((m, idx) => ({
+          id: `med-${Date.now()}-${idx}`,
+          medName: m.medName,
+          qty: m.qty || '30',
+        }))
+      );
+    }
+    setActiveSection('opd');
+  };
+
+  const handleRepeatLastPrescription = () => {
+    if (selectedPatient && selectedPatient.lastMedicines.length > 0) {
+      setMedRows(
+        selectedPatient.lastMedicines.map((m, idx) => ({
+          id: `med-${Date.now()}-${idx}`,
+          medName: m.medName,
+          qty: m.qty || '30',
+        }))
+      );
+      showNotice('info', 'मागील भेटीतील औषधे व मात्रा निवडली गेली आहेत.');
+    } else if (selectedPatientHistory.length > 0) {
+      const latestDate = selectedPatientHistory[0].date;
+      const latestMeds = selectedPatientHistory.filter((h) => h.date === latestDate);
+      setMedRows(
+        latestMeds.map((m, idx) => ({
+          id: `med-${Date.now()}-${idx}`,
+          medName: m.medicine,
+          qty: m.qty || '30',
+        }))
+      );
+      showNotice('info', `दिनांक ${latestDate} रोजी दिलेली औषधे निवडली गेली आहेत.`);
+    }
+  };
+
+  const handleClearOpdForm = () => {
+    setSelectedPatient(null);
+    setVisitDate(todayIso);
+    setOpdNo(nextSuggestedOpdNo);
+    setFName('');
+    setMName('');
+    setLName('');
+    setGender('Male (पुरुष)');
+    setMobile('');
+    setFormVillage(villages[0] || 'भादा');
+    setDisease('BP');
+    setBpReading('');
+    setSugarReading('');
+    setMedRows([
+      { id: `med-${Date.now()}`, medName: medicines[0] || 'Telmisartan 40 Mg', qty: '30' },
+    ]);
+  };
+
+  const handleAddMedicineRow = () => {
+    setMedRows((prev) => [
+      ...prev,
+      {
+        id: `med-${Date.now()}-${prev.length}`,
+        medName: medicines[0] || 'Telmisartan 40 Mg',
+        qty: '30',
+      },
+    ]);
+  };
+
+  const handleUpdateMedicineRow = (id: string, field: 'medName' | 'qty', value: string) => {
+    setMedRows((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const handleRemoveMedicineRow = (id: string) => {
+    setMedRows((prev) => (prev.length > 1 ? prev.filter((r) => r.id !== id) : prev));
+  };
+
+  // Handler: Save OPD Record to hardcoded phbhada@gmail.com Google Sheet
+  const handleRequestSaveOpd = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const validMeds = medRows
+      .map((m) => ({ medName: m.medName.trim(), qty: m.qty.trim() }))
+      .filter((m) => m.medName && m.qty);
+
+    if (!opdNo.trim() || !fName.trim() || !formVillage.trim()) {
+      showNotice('error', 'कृपया OPD क्रमांक, रुग्णाचे पहिले नाव आणि गाव आवर्जून भरा.');
+      return;
+    }
+
+    if (validMeds.length === 0) {
+      showNotice('error', 'कृपया किमान एक औषध आणि त्याची मात्रा (Qty) निवडा.');
+      return;
+    }
+
+    const submission: OpdSubmissionForm = {
+      visitDate,
+      opdNo: opdNo.trim(),
+      fName: fName.trim(),
+      mName: mName.trim(),
+      lName: lName.trim(),
+      gender,
+      mobile: mobile.trim(),
+      village: formVillage,
+      disease,
+      bp: bpReading.trim(),
+      sugar: sugarReading.trim(),
+      medList: validMeds,
+    };
+
+    const fullName = [submission.fName, submission.mName, submission.lName]
+      .filter(Boolean)
+      .join(' ');
+    const medsText = validMeds.map((m) => `${m.medName} (${m.qty} गोळ्या)`).join(', ');
+
+    setConfirmPayload({
+      title: 'OPD व औषध वाटप नोंद जतन करण्याची पुष्टी करा',
+      subtitle:
+        'खालील रुग्णाची माहिती आणि औषध वाटप नोंदी थेट Google Sheet मधील "Data" टॅबमध्ये सेव्ह केल्या जातील.',
+      summaryItems: [
+        {
+          label: 'दिनांक व OPD क्र.',
+          value: `${formatIsoToDisplay(visitDate)} · OPD #${submission.opdNo}`,
+        },
+        { label: 'रुग्णाचे नाव', value: fullName },
+        { label: 'गाव व लिंग', value: `${submission.village} · ${submission.gender}` },
+        { label: 'आजार (Diagnosis)', value: submission.disease },
+        { label: 'वाटप केलेली औषधे (Medicines)', value: medsText },
+      ],
+      confirmLabel: 'निश्चित करा व जतन करा (Save)',
+      onConfirm: async () => {
+        setIsConfirmSubmitting(true);
+        try {
+          await saveRecordToPhbhadaSheet(PHBHADA_SCRIPT_WEB_APP_URL, submission);
+
+          const displayDate = formatIsoToDisplay(submission.visitDate);
+          const newRows: OpdRowRecord[] = submission.medList.map((m, idx) => ({
+            rowIndex: records.length + idx + 2,
+            visitDate: displayDate,
+            isoDate: submission.visitDate,
+            opdNo: submission.opdNo,
+            fName: submission.fName,
+            mName: submission.mName,
+            lName: submission.lName,
+            gender: submission.gender,
+            mobile: submission.mobile,
+            village: submission.village,
+            disease: submission.disease,
+            bp: submission.bp,
+            sugar: submission.sugar,
+            medName: m.medName,
+            qty: m.qty,
+          }));
+
+          setRecords((prev) => [...prev, ...newRows]);
+          setConfirmPayload(null);
+          showNotice(
+            'success',
+            `✅ रुग्ण "${fullName}" (OPD #${submission.opdNo}) ची ${validMeds.length} औषध नोंदी यशस्वीरित्या जतन झाल्या!`
+          );
+        } catch (err: any) {
+          showNotice('error', err?.message || 'माहिती सेव्ह करताना त्रुटी आली.');
+        } finally {
+          setIsConfirmSubmitting(false);
+        }
+      },
+    });
+  };
+
+  // Handler: Add Master Item (Medicine or Village)
+  const handleAddMasterItem = (tabName: 'Medicines' | 'Villages', value: string) => {
+    const cleanVal = value.trim();
+    if (!cleanVal) return;
+
+    const labelMarathi = tabName === 'Medicines' ? 'नवीन औषध' : 'नवीन गाव';
+
+    setConfirmPayload({
+      title: `${labelMarathi} यादीत जोडण्याची पुष्टी करा`,
+      subtitle: `हे ${labelMarathi} Google Sheet मधील "${tabName}" टॅबमध्ये जोडले जाईल.`,
+      summaryItems: [
+        { label: 'शीट टॅब (Sheet Tab)', value: tabName },
+        { label: `${labelMarathi} नाव`, value: cleanVal },
+      ],
+      confirmLabel: 'निश्चित करा व जोडा',
+      onConfirm: async () => {
+        setIsConfirmSubmitting(true);
+        try {
+          await addMasterItemToPhbhadaSheet(PHBHADA_SCRIPT_WEB_APP_URL, tabName, cleanVal);
+
+          if (tabName === 'Medicines') {
+            setMedicines((prev) => (prev.includes(cleanVal) ? prev : [...prev, cleanVal]));
+            setNewMedicineName('');
+          } else {
+            setVillages((prev) => (prev.includes(cleanVal) ? prev : [...prev, cleanVal]));
+            setNewVillageName('');
+          }
+          setConfirmPayload(null);
+          showNotice('success', `✅ "${cleanVal}" यशस्वीरित्या ${tabName} यादीत जोडले गेले!`);
+        } catch (err: any) {
+          showNotice('error', err?.message || 'माहिती जोडताना त्रुटी आली.');
+        } finally {
+          setIsConfirmSubmitting(false);
+        }
+      },
+    });
+  };
+
+  // Open Patient Treatment Card Preview
+  const openPatientCardModal = (p: {
+    fName: string;
+    mName: string;
+    lName: string;
+    gender: string;
+    mobile: string;
+    village: string;
+    disease: string;
+  }) => {
+    const history = getPatientHistoryFromRecords(records, p);
+    setPreviewReport({
+      type: 'patient_card',
+      patient: p,
+      history,
+    });
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+      {/* Top Bar Contract: Zone 1 (Wordmark) — Zone 2 (4 single-line links) — Zone 3 (1 primary action) */}
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-8 px-6 py-3.5 bg-white border-b border-slate-200 no-print">
+        <a
+          href="#opd"
+          onClick={(e) => {
+            e.preventDefault();
+            setActiveSection('opd');
+          }}
+          className="text-lg font-extrabold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
+        >
+          PHC भादा · NCD OPD
+        </a>
+
+        <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-600">
+          <a
+            href="#opd"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('opd');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+              activeSection === 'opd'
+                ? 'text-emerald-800 underline underline-offset-8 decoration-2'
+                : 'hover:text-slate-900'
+            }`}
+          >
+            बाह्यरुग्ण नोंदणी (OPD)
+          </a>
+          <a
+            href="#date-reports"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('date_reports');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+              activeSection === 'date_reports'
+                ? 'text-emerald-800 underline underline-offset-8 decoration-2'
+                : 'hover:text-slate-900'
+            }`}
+          >
+            दिनांकनिहाय अहवाल
+          </a>
+          <a
+            href="#village-reports"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('village_reports');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+              activeSection === 'village_reports'
+                ? 'text-emerald-800 underline underline-offset-8 decoration-2'
+                : 'hover:text-slate-900'
+            }`}
+          >
+            गाववार रुग्ण यादी
+          </a>
+          <a
+            href="#master-lists"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveSection('master_lists');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+              activeSection === 'master_lists'
+                ? 'text-emerald-800 underline underline-offset-8 decoration-2'
+                : 'hover:text-slate-900'
+            }`}
+          >
+            औषधे व गावे यादी
+          </a>
+        </nav>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              handleClearOpdForm();
+              setActiveSection('opd');
+            }}
+            className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 transition-colors whitespace-nowrap shrink-0"
+          >
+            + नवीन रुग्ण नोंदणी
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile Navigation Bar */}
+      <div className="flex md:hidden items-center gap-1 px-4 py-2 bg-white border-b border-slate-200 overflow-x-auto no-print">
+        <button
+          type="button"
+          onClick={() => setActiveSection('opd')}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
+            activeSection === 'opd'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          १. OPD नोंदणी
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSection('date_reports')}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
+            activeSection === 'date_reports'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          २. दिनांकनिहाय अहवाल
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSection('village_reports')}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
+            activeSection === 'village_reports'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          ३. गाववार यादी
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSection('master_lists')}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap shrink-0 ${
+            activeSection === 'master_lists'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          ४. औषधे व गावे
+        </button>
+      </div>
+
+      {/* Main Content Container */}
+      <main className="flex-1 max-w-[1360px] w-full mx-auto px-4 sm:px-6 py-6 space-y-6 no-print">
+        {/* Institutional Header & Summary Strip */}
+        <section className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-5 border-b border-slate-200">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">
+                प्राथमिक आरोग्य केंद्र भादा (ता. औसा, जि. लातूर) · असंसर्गजन्य रोग नियंत्रण कार्यक्रम (NCD Clinic)
+              </p>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1">
+                बाह्यरुग्ण विभाग (OPD) औषध वाटप, दिनांकनिहाय उपचार इतिहास व गाववार अहवाल प्रणाली
+              </h1>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleSyncFromPhbhadaSheet}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'रिफ्रेश होत आहे...' : 'डेटा रिफ्रेश करा'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4-Column Metric Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
+              <span className="text-xs font-medium text-slate-500">
+                एकूण नोंदणीकृत NCD रुग्ण (Unique Patients)
+              </span>
+              <p className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums mt-1">
+                {allPatients.length}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                BP: {allPatients.filter((p) => p.disease === 'BP').length} · शुगर:{' '}
+                {allPatients.filter((p) => p.disease === 'Diabetes').length} · दोन्ही:{' '}
+                {allPatients.filter((p) => p.disease === 'Both').length}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
+              <span className="text-xs font-medium text-slate-500">
+                एकूण औषध वाटप नोंदी (Total Medicine Entries)
+              </span>
+              <p className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums mt-1">
+                {records.length}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                एकूण वाटप गोळ्या:{' '}
+                <span className="font-mono tabular-nums font-semibold text-slate-700">
+                  {records.reduce((acc, r) => acc + (parseInt(r.qty, 10) || 0), 0)}
+                </span>
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
+              <span className="text-xs font-medium text-slate-500">
+                कार्यक्षेत्रातील गावे (Covered Villages)
+              </span>
+              <p className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums mt-1">
+                {villages.length}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 truncate">
+                भादा, काळमाथा, आंदोरा, ब-हाणपूर, भेटा, वडजी इ.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
+              <span className="text-xs font-medium text-slate-500">
+                उपलब्ध NCD औषधे (Available Medicines)
+              </span>
+              <p className="text-2xl font-extrabold text-slate-900 font-mono tabular-nums mt-1">
+                {medicines.length}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 truncate">
+                Telmisartan, Metformine, Glimpride, Atenolol इ.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Status Notification Banner */}
+        {bannerMessage && (
+          <div
+            className={`flex items-center justify-between gap-4 px-4 py-3 rounded-lg border text-sm font-medium ${
+              bannerMessage.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : bannerMessage.type === 'error'
+                ? 'bg-red-50 border-red-200 text-red-900'
+                : 'bg-blue-50 border-blue-200 text-blue-900'
+            }`}
+          >
+            <span>{bannerMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => setBannerMessage(null)}
+              className="text-xs font-bold underline shrink-0"
+            >
+              बंद करा
+            </button>
+          </div>
+        )}
+
+        {/* =====================================================================
+            SECTION 1: बाह्यरुग्ण नोंदणी व औषध वाटप (OPD Registration & Search)
+           ===================================================================== */}
+        {activeSection === 'opd' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* LEFT COLUMN (5 cols): जुना रुग्ण शोधा & निवडलेल्या रुग्णाचा जुना इतिहास */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                  <div>
+                    <h2 className="text-lg font-extrabold text-slate-900">
+                      १. जुना रुग्ण शोधा (Search Patient)
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      गाव निवडा किंवा रुग्णाचे नाव / मोबाईल टाईप करून जुना उपचार इतिहास पहा
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono tabular-nums text-slate-500">
+                    {searchedPatients.length} रुग्ण
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="search-village"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      १. गाव निवडा (Village):
+                    </label>
+                    <select
+                      id="search-village"
+                      value={searchVillage}
+                      onChange={(e) => setSearchVillage(e.target.value)}
+                      className="w-full h-11 px-3 text-sm font-semibold bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    >
+                      <option value="ALL">सर्व गावे (All Villages)</option>
+                      {villages.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="search-name"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      २. नाव किंवा मोबाईल शोधा:
+                    </label>
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                      <input
+                        id="search-name"
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="उदा. गोविंद, महानंदा, हरीभाऊ..."
+                        className="w-full h-11 pl-9 pr-3 text-sm font-semibold bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Patient Search Results List */}
+                <div className="max-h-[340px] overflow-y-auto divide-y divide-slate-200 border border-slate-200 rounded-lg">
+                  {isInitialLoading ? (
+                    <div className="p-6 text-center text-sm text-slate-500">
+                      रुग्ण माहिती लोड होत आहे...
+                    </div>
+                  ) : searchedPatients.length === 0 ? (
+                    <div className="p-6 text-center space-y-2">
+                      <p className="text-sm font-semibold text-slate-700">
+                        या नावाचा किंवा गावाचा रुग्ण सापडला नाही.
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        तुम्ही उजव्या बाजूच्या फॉर्ममध्ये नवीन रुग्ण म्हणून नोंदणी करू शकता.
+                      </p>
+                    </div>
+                  ) : (
+                    searchedPatients.slice(0, 40).map((p) => {
+                      const isSelected = selectedPatient?.key === p.key;
+                      return (
+                        <div
+                          key={p.key}
+                          onClick={() => handleSelectPatient(p)}
+                          className={`p-3.5 cursor-pointer transition-colors flex items-center justify-between gap-3 ${
+                            isSelected ? 'bg-emerald-50/90' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-slate-900 truncate">
+                              {p.fullName}
+                            </div>
+                            <div className="text-xs text-slate-600 mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <span className="font-semibold text-slate-800">{p.village}</span>
+                              <span>·</span>
+                              <span className="font-semibold text-red-700">{p.disease}</span>
+                              <span>·</span>
+                              <span className="font-mono tabular-nums">
+                                शेवटची भेट: {p.lastVisitDate}
+                              </span>
+                            </div>
+                            {p.lastMedicines.length > 0 && (
+                              <div className="text-xs text-slate-500 mt-1 truncate">
+                                औषधे:{' '}
+                                {p.lastMedicines
+                                  .map((m) => `${m.medName} (${m.qty})`)
+                                  .join(', ')}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openPatientCardModal(p);
+                              }}
+                              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg transition-colors"
+                              title="उपचार कार्ड / PDF पहा"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                            <span className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-100/80 rounded-md">
+                              निवडा
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Selected Patient's Date-wise Treatment History Box */}
+              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div className="flex items-center gap-2">
+                    <History className="w-5 h-5 text-slate-700" />
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        रुग्णाचा जुना उपचार व औषध इतिहास
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        कधी-कधी कोणते औषध किती मात्रेत दिले याची तारीखवार नोंद
+                      </p>
+                    </div>
+                  </div>
+
+                  {fName && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openPatientCardModal({
+                          fName,
+                          mName,
+                          lName,
+                          gender,
+                          mobile,
+                          village: formVillage,
+                          disease,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-red-700 hover:bg-red-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>PDF / उपचार कार्ड</span>
+                    </button>
+                  )}
+                </div>
+
+                {!fName ? (
+                  <p className="text-xs text-slate-500 py-4 text-center">
+                    वरच्या यादीतून रुग्ण निवडल्यास किंवा फॉर्ममध्ये रुग्णाचे नाव व गाव टाकल्यास त्याचा संपूर्ण जुना औषध इतिहास येथे दिसेल.
+                  </p>
+                ) : selectedPatientHistory.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-4 text-center">
+                    या रुग्णाचा कोणताही जुना औषध इतिहास आढळला नाही (नवीन रुग्ण नोंदणी).
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs text-slate-600">
+                      <span>
+                        रुग्ण:{' '}
+                        <strong className="text-slate-900">
+                          {fName} {mName} {lName}
+                        </strong>{' '}
+                        ({formVillage})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRepeatLastPrescription}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 underline"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>मागील औषधे पुन्हा निवडा</span>
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-200 text-slate-700">
+                            <th className="py-2 px-3 font-bold">दिनांक (Date)</th>
+                            <th className="py-2 px-2.5 font-bold">OPD क्र.</th>
+                            <th className="py-2 px-3 font-bold">दिलेले औषध (Medicine)</th>
+                            <th className="py-2 px-3 font-bold text-right">मात्रा (Qty)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {selectedPatientHistory.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-mono tabular-nums font-semibold text-slate-900">
+                                {item.date}
+                              </td>
+                              <td className="py-2 px-2.5 font-mono tabular-nums text-slate-600">
+                                {item.opd}
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-800">
+                                {item.medicine}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono tabular-nums font-bold text-emerald-800">
+                                {item.qty}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN (7 cols): बाह्यरुग्ण (OPD) व औषध वाटप नोंदणी फॉर्म */}
+            <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 mb-5">
+                <div>
+                  <h2 className="text-xl font-extrabold text-slate-900">
+                    २. बाह्यरुग्ण (OPD) व औषध वाटप नोंदणी फॉर्म
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    नवीन किंवा जुन्या रुग्णाची आजची OPD भेट व दिलेली औषधे येथे नोंदवा
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleClearOpdForm}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>+ नवीन रुग्ण (Clear Form)</span>
+                </button>
+              </div>
+
+              <form onSubmit={handleRequestSaveOpd} className="space-y-5">
+                {/* Row 1: Date & OPD Number */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label
+                      htmlFor="visit-date"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      दिनांक (Visit Date):
+                    </label>
+                    <input
+                      id="visit-date"
+                      type="date"
+                      value={visitDate}
+                      onChange={(e) => setVisitDate(e.target.value)}
+                      required
+                      className="w-full h-12 px-3.5 text-base font-bold font-mono tabular-nums bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        htmlFor="opd-no"
+                        className="block text-sm font-extrabold text-red-700"
+                      >
+                        OPD क्रमांक (OPD No.): *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setOpdNo(nextSuggestedOpdNo)}
+                        className="text-xs font-semibold text-emerald-700 hover:underline font-mono tabular-nums"
+                      >
+                        सुचवलेला क्र.: #{nextSuggestedOpdNo}
+                      </button>
+                    </div>
+                    <input
+                      id="opd-no"
+                      type="text"
+                      inputMode="numeric"
+                      value={opdNo}
+                      onChange={(e) => setOpdNo(e.target.value)}
+                      placeholder="उदा. 105"
+                      required
+                      className="w-full h-12 px-3.5 text-lg font-extrabold font-mono tabular-nums bg-white border-2 border-slate-400 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: First Name, Middle Name, Last Name */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label
+                      htmlFor="f-name"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      रुग्णाचे पहिले नाव: *
+                    </label>
+                    <input
+                      id="f-name"
+                      type="text"
+                      value={fName}
+                      onChange={(e) => setFName(e.target.value)}
+                      placeholder="पहिले नाव"
+                      required
+                      className="w-full h-12 px-3.5 text-base font-bold bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="m-name"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      मधले नाव (वडिलांचे/पतीचे):
+                    </label>
+                    <input
+                      id="m-name"
+                      type="text"
+                      value={mName}
+                      onChange={(e) => setMName(e.target.value)}
+                      placeholder="मधले नाव"
+                      className="w-full h-12 px-3.5 text-base font-bold bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="l-name"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      आडनाव (Last Name):
+                    </label>
+                    <input
+                      id="l-name"
+                      type="text"
+                      value={lName}
+                      onChange={(e) => setLName(e.target.value)}
+                      placeholder="आडनाव"
+                      className="w-full h-12 px-3.5 text-base font-bold bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3: Gender, Mobile, Village */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label
+                      htmlFor="gender"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      लिंग (Gender):
+                    </label>
+                    <select
+                      id="gender"
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      className="w-full h-12 px-3 text-base font-bold bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    >
+                      <option value="Male (पुरुष)">Male (पुरुष)</option>
+                      <option value="Female (स्त्री)">Female (स्त्री)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="mobile"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      मोबाईल नंबर (Mobile):
+                    </label>
+                    <input
+                      id="mobile"
+                      type="tel"
+                      maxLength={10}
+                      value={mobile}
+                      onChange={(e) => setMobile(e.target.value)}
+                      placeholder="98XXXXXXXX"
+                      className="w-full h-12 px-3.5 text-base font-bold font-mono tabular-nums bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="form-village"
+                      className="block text-sm font-bold text-slate-800 mb-1.5"
+                    >
+                      गाव (Village): *
+                    </label>
+                    <select
+                      id="form-village"
+                      value={formVillage}
+                      onChange={(e) => setFormVillage(e.target.value)}
+                      required
+                      className="w-full h-12 px-3 text-base font-bold bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    >
+                      {villages.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Row 4: Diagnosis (Disease), Optional BP & Sugar */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label
+                      htmlFor="disease"
+                      className="block text-sm font-extrabold text-red-700 mb-1.5"
+                    >
+                      आजार / निदान (Diagnosis): *
+                    </label>
+                    <select
+                      id="disease"
+                      value={disease}
+                      onChange={(e) => setDisease(e.target.value)}
+                      className="w-full h-12 px-3 text-base font-extrabold text-red-700 bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    >
+                      <option value="BP">Blood Pressure (BP)</option>
+                      <option value="Diabetes">Diabetes (Sugar)</option>
+                      <option value="Both">Both (BP + Sugar)</option>
+                      <option value="Other">Other (इतर)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="bp-reading"
+                      className="block text-sm font-bold text-slate-700 mb-1.5"
+                    >
+                      रक्तदाब (BP - ऐच्छिक):
+                    </label>
+                    <input
+                      id="bp-reading"
+                      type="text"
+                      value={bpReading}
+                      onChange={(e) => setBpReading(e.target.value)}
+                      placeholder="उदा. 130/80"
+                      className="w-full h-12 px-3.5 text-sm font-semibold font-mono tabular-nums bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="sugar-reading"
+                      className="block text-sm font-bold text-slate-700 mb-1.5"
+                    >
+                      रक्त शर्करा (BSL - ऐच्छिक):
+                    </label>
+                    <input
+                      id="sugar-reading"
+                      type="text"
+                      value={sugarReading}
+                      onChange={(e) => setSugarReading(e.target.value)}
+                      placeholder="उदा. 140 mg/dL"
+                      className="w-full h-12 px-3.5 text-sm font-semibold font-mono tabular-nums bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Medicines Dispensing Section */}
+                <div className="pt-2 border-t border-slate-200 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Pill className="w-5 h-5 text-emerald-700" />
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        दिलेली औषधे व मात्रा (Medicines Dispensed)
+                      </h3>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddMedicineRow}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-extrabold text-slate-900 bg-amber-400 hover:bg-amber-500 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ औषध ॲड करा (Add Medicine)</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {medRows.map((row, index) => (
+                      <div
+                        key={row.id}
+                        className="p-4 rounded-xl bg-slate-50 border border-slate-300 space-y-3"
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                          <div className="sm:col-span-7">
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              औषध क्र. {index + 1} निवडा (Select Medicine):
+                            </label>
+                            <select
+                              value={row.medName}
+                              onChange={(e) =>
+                                handleUpdateMedicineRow(row.id, 'medName', e.target.value)
+                              }
+                              className="w-full h-11 px-3 text-sm font-bold bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                            >
+                              {medicines.map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="sm:col-span-3">
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              मात्रा / गोळ्या (Qty):
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={row.qty}
+                              onChange={(e) =>
+                                handleUpdateMedicineRow(row.id, 'qty', e.target.value)
+                              }
+                              placeholder="संख्या"
+                              className="w-full h-11 px-3 text-base font-extrabold font-mono tabular-nums bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-700"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMedicineRow(row.id)}
+                              disabled={medRows.length === 1}
+                              className="w-full h-11 inline-flex items-center justify-center gap-1 px-2.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors disabled:opacity-40"
+                              title="हे औषध काढा"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span className="sm:hidden">काढा</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Quick tablet count buttons */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-xs font-medium text-slate-500 mr-1">
+                            जलद मात्रा (गोळ्या):
+                          </span>
+                          {['10', '15', '30', '60', '90', '120'].map((presetQty) => (
+                            <button
+                              key={presetQty}
+                              type="button"
+                              onClick={() =>
+                                handleUpdateMedicineRow(row.id, 'qty', presetQty)
+                              }
+                              className={`px-2.5 py-1 text-xs font-mono tabular-nums font-bold rounded-md border transition-colors ${
+                                row.qty === presetQty
+                                  ? 'bg-slate-900 text-white border-slate-900'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                              }`}
+                            >
+                              {presetQty}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Submit & Print Actions */}
+                <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  {fName ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openPatientCardModal({
+                          fName,
+                          mName,
+                          lName,
+                          gender,
+                          mobile,
+                          village: formVillage,
+                          disease,
+                        })
+                      }
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Printer className="w-4 h-4 text-red-700" />
+                      <span>रुग्ण उपचार कार्ड / PDF डाउनलोड करा</span>
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 px-8 py-4 text-base font-extrabold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <CheckCircle2 className="w-5 h-5" />
+                    <span>माहिती साठवा (SAVE RECORD)</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
+            SECTION 2: दिनांकनिहाय औषध वाटप व रुग्ण इतिहास अहवाल (Date-wise Reports)
+           ===================================================================== */}
+        {activeSection === 'date_reports' && (
+          <div className="space-y-6">
+            {/* Filter Controls Card */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">
+                    दिनांकनिहाय औषध वाटप व रुग्ण उपचार अहवाल (Date-wise Medicine Distribution Report)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    कोणत्या तारखेला कोणत्या रुग्णाला कोणते औषध किती मात्रांमध्ये दिले याचा सविस्तर अहवाल व एकूण औषध खप
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewReport({
+                        type: 'date_wise_report',
+                        fromDate: formatIsoToDisplay(fromDateFilter),
+                        toDate: formatIsoToDisplay(toDateFilter),
+                        villageFilter: dateReportVillage,
+                        diseaseFilter: dateReportDisease,
+                        records: dateFilteredRecords,
+                        medicineTotals: medicineConsumptionTotals,
+                      })
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-extrabold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>दिनांकनिहाय रिपोर्ट प्रिंट / PDF / CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    पासून दिनांक (From Date):
+                  </label>
+                  <input
+                    type="date"
+                    value={fromDateFilter}
+                    onChange={(e) => setFromDateFilter(e.target.value)}
+                    className="w-full h-10 px-3 text-xs font-bold font-mono tabular-nums bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    पर्यंत दिनांक (To Date):
+                  </label>
+                  <input
+                    type="date"
+                    value={toDateFilter}
+                    onChange={(e) => setToDateFilter(e.target.value)}
+                    className="w-full h-10 px-3 text-xs font-bold font-mono tabular-nums bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    गाव निवडा (Village):
+                  </label>
+                  <select
+                    value={dateReportVillage}
+                    onChange={(e) => setDateReportVillage(e.target.value)}
+                    className="w-full h-10 px-3 text-xs font-bold bg-white border border-slate-300 rounded-lg"
+                  >
+                    <option value="ALL">सर्व गावे (All Villages)</option>
+                    {villages.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    आजार (Diagnosis):
+                  </label>
+                  <select
+                    value={dateReportDisease}
+                    onChange={(e) => setDateReportDisease(e.target.value)}
+                    className="w-full h-10 px-3 text-xs font-bold bg-white border border-slate-300 rounded-lg"
+                  >
+                    <option value="ALL">सर्व आजार (All)</option>
+                    <option value="BP">BP (रक्तदाब)</option>
+                    <option value="Diabetes">Diabetes (शुगर)</option>
+                    <option value="Both">Both (BP + Sugar)</option>
+                    <option value="Other">Other (इतर)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    औषध फिल्टर (Medicine):
+                  </label>
+                  <select
+                    value={dateReportMedicine}
+                    onChange={(e) => setDateReportMedicine(e.target.value)}
+                    className="w-full h-10 px-3 text-xs font-bold bg-white border border-slate-300 rounded-lg"
+                  >
+                    <option value="ALL">सर्व औषधे (All Medicines)</option>
+                    {medicines.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick Date Preset Buttons & Sub-View Toggle */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-semibold text-slate-500 mr-1">
+                    कालावधी निवडा:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFromDateFilter('2026-01-01');
+                      setToDateFilter('2026-12-31');
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md"
+                  >
+                    संपूर्ण वर्ष २०२६
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFromDateFilter('2026-01-01');
+                      setToDateFilter('2026-01-31');
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md"
+                  >
+                    जानेवारी २०२६
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFromDateFilter('2026-02-01');
+                      setToDateFilter('2026-02-28');
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md"
+                  >
+                    फेब्रुवारी २०२६
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFromDateFilter('2026-10-01');
+                      setToDateFilter('2026-11-30');
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md"
+                  >
+                    ऑक्टोबर-नोव्हेंबर २०२६
+                  </button>
+                </div>
+
+                {/* Sub-mode segmented control */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setDateReportMode('register')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      dateReportMode === 'register'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    १. तारीखवार वाटप रजिस्टर व औषध खप
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateReportMode('patient_timeline')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      dateReportMode === 'patient_timeline'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    २. रुग्णनिहाय तारीखवार औषध इतिहास (कधी-कोणते औषध)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {dateReportMode === 'register' ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Medicine Consumption Summary (4 cols) */}
+                <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+                  <div className="border-b border-slate-200 pb-3">
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      औषधनिहाय एकूण वाटप गोषवारा
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      निवडलेल्या कालावधीत कोणते औषध किती रुग्णांना व किती मात्रेत दिले
+                    </p>
+                  </div>
+
+                  {medicineConsumptionTotals.length === 0 ? (
+                    <p className="text-xs text-slate-500 py-6 text-center">
+                      या तारखांमध्ये औषध वाटप नोंदी नाहीत.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-200 text-slate-700">
+                            <th className="py-2.5 px-3 font-bold">औषधाचे नाव</th>
+                            <th className="py-2.5 px-2.5 font-bold text-right">रुग्ण</th>
+                            <th className="py-2.5 px-3 font-bold text-right">एकूण गोळ्या</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {medicineConsumptionTotals.map((m) => (
+                            <tr key={m.medName} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-semibold text-slate-900">
+                                {m.medName}
+                              </td>
+                              <td className="py-2 px-2.5 text-right font-mono tabular-nums text-slate-600">
+                                {m.prescriptionCount}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono tabular-nums font-extrabold text-emerald-800">
+                                {m.totalQty}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Detailed Date-wise OPD Medicine Table (8 cols) */}
+                <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        दिनांकनिहाय रुग्ण औषध वाटप यादी (Date-wise OPD Register)
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        एकूण {dateFilteredRecords.length} औषध वाटप नोंदी सापडल्या
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[540px] overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                      <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 text-slate-700">
+                        <tr>
+                          <th className="py-2.5 px-3 font-bold">दिनांक</th>
+                          <th className="py-2.5 px-2.5 font-bold">OPD क्र.</th>
+                          <th className="py-2.5 px-3 font-bold">रुग्णाचे नाव</th>
+                          <th className="py-2.5 px-3 font-bold">गाव</th>
+                          <th className="py-2.5 px-2.5 font-bold">आजार</th>
+                          <th className="py-2.5 px-3 font-bold">दिलेले औषध (Medicine)</th>
+                          <th className="py-2.5 px-3 font-bold text-right">मात्रा (Qty)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {dateFilteredRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-slate-500 text-sm">
+                              निवडलेल्या तारखांमध्ये कोणतीही नोंद आढळली नाही.
+                            </td>
+                          </tr>
+                        ) : (
+                          dateFilteredRecords.map((r, idx) => (
+                            <tr key={`${r.rowIndex}_${idx}`} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-mono tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+                                {r.visitDate}
+                              </td>
+                              <td className="py-2 px-2.5 font-mono tabular-nums text-slate-600">
+                                {r.opdNo}
+                              </td>
+                              <td className="py-2 px-3 font-bold text-slate-900">
+                                {[r.fName, r.mName, r.lName].filter(Boolean).join(' ')}
+                              </td>
+                              <td className="py-2 px-3 text-slate-700">{r.village}</td>
+                              <td className="py-2 px-2.5 font-semibold text-red-700">
+                                {r.disease}
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-900">
+                                {r.medName}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono tabular-nums font-extrabold text-emerald-800">
+                                {r.qty}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Sub-mode 2: Patient-wise Chronological Medicine History */
+              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      रुग्णनिहाय तारीखवार औषध वाटप इतिहास (कोणत्या रुग्णाला कधी-कधी कोणते औषध किती दिले)
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      प्रत्येक रुग्णाच्या सर्व भेटींचा दिनांक, OPD क्रमांक, दिलेली औषधे आणि मात्रा यांचा एकत्रित तक्ता
+                    </p>
+                  </div>
+
+                  <div className="relative w-full sm:w-72">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={timelineSearch}
+                      onChange={(e) => setTimelineSearch(e.target.value)}
+                      placeholder="रुग्णाचे नाव किंवा गाव शोधा..."
+                      className="w-full h-9 pl-9 pr-3 text-xs font-semibold bg-white border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {patientDateTimelines.map(({ patient, history }) => (
+                    <div
+                      key={patient.key}
+                      className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50/40"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900">
+                            {patient.fullName}
+                          </h4>
+                          <p className="text-xs text-slate-600 mt-0.5">
+                            गाव: <strong>{patient.village}</strong> · आजार:{' '}
+                            <strong className="text-red-700">{patient.disease}</strong> · एकूण भेटी:{' '}
+                            <strong className="font-mono tabular-nums">{patient.totalVisits}</strong>
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => openPatientCardModal(patient)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-100 rounded-md shrink-0"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-red-700" />
+                          <span>उपचार कार्ड</span>
+                        </button>
+                      </div>
+
+                      <table className="w-full text-left border-collapse text-xs bg-white border border-slate-200 rounded-md overflow-hidden">
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-200 text-slate-700">
+                            <th className="py-1.5 px-2.5 font-bold">दिनांक</th>
+                            <th className="py-1.5 px-2 font-bold">OPD</th>
+                            <th className="py-1.5 px-2.5 font-bold">औषध (Medicine)</th>
+                            <th className="py-1.5 px-2.5 font-bold text-right">मात्रा</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {history.map((h, i) => (
+                            <tr key={i}>
+                              <td className="py-1.5 px-2.5 font-mono tabular-nums font-medium">
+                                {h.date}
+                              </td>
+                              <td className="py-1.5 px-2 font-mono tabular-nums text-slate-500">
+                                {h.opd}
+                              </td>
+                              <td className="py-1.5 px-2.5 font-semibold text-slate-800">
+                                {h.medicine}
+                              </td>
+                              <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold text-emerald-800">
+                                {h.qty}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* =====================================================================
+            SECTION 3: गाववार रुग्ण यादी व रिपोर्ट (Village-wise Patient Register)
+           ===================================================================== */}
+        {activeSection === 'village_reports' && (
+          <div className="space-y-6">
+            {/* Village Summary Selector Strip */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">
+                    गाववार एनसीडी (NCD) रुग्ण याद्या व अहवाल (Village-wise Patient Lists)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    प्राथमिक आरोग्य केंद्र भादा अंतर्गत कोणत्याही गावाची रुग्ण यादी निवडा, प्रिंट करा किंवा Excel (CSV) डाउनलोड करा
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreviewReport({
+                      type: 'village_report',
+                      villageName:
+                        villageReportFilter === 'ALL'
+                          ? 'सर्व गावे (All Villages)'
+                          : villageReportFilter,
+                      diseaseFilter: villageDiseaseFilter,
+                      patients: villageFilteredPatients,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-extrabold text-white bg-purple-900 hover:bg-purple-950 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>🖨️ गाव यादी प्रिंट / PDF / Excel डाउनलोड करा</span>
+                </button>
+              </div>
+
+              {/* Interactive Village Filter Buttons */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setVillageReportFilter('ALL')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors ${
+                    villageReportFilter === 'ALL'
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  सर्व गावे ({allPatients.length})
+                </button>
+                {villageCountsSummary.map((vc) => (
+                  <button
+                    key={vc.village}
+                    type="button"
+                    onClick={() => setVillageReportFilter(vc.village)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors ${
+                      villageReportFilter === vc.village
+                        ? 'bg-emerald-800 text-white border-emerald-800'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    {vc.village} ({vc.total})
+                  </button>
+                ))}
+              </div>
+
+              {/* Filter Inputs */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    गाव निवडा (Select Village):
+                  </label>
+                  <select
+                    value={villageReportFilter}
+                    onChange={(e) => setVillageReportFilter(e.target.value)}
+                    className="w-full h-10 px-3 text-sm font-bold bg-white border border-slate-300 rounded-lg"
+                  >
+                    <option value="ALL">सर्व गावे (All Villages)</option>
+                    {villages.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    आजार निवडा (Diagnosis Filter):
+                  </label>
+                  <select
+                    value={villageDiseaseFilter}
+                    onChange={(e) => setVillageDiseaseFilter(e.target.value)}
+                    className="w-full h-10 px-3 text-sm font-bold bg-white border border-slate-300 rounded-lg"
+                  >
+                    <option value="ALL">सर्व आजार (BP + Diabetes + Both)</option>
+                    <option value="BP">फक्त Blood Pressure (BP)</option>
+                    <option value="Diabetes">फक्त Diabetes (Sugar)</option>
+                    <option value="Both">Both (BP + Sugar दोन्ही)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    रुग्णाचे नाव किंवा मोबाईल शोधा:
+                  </label>
+                  <input
+                    type="text"
+                    value={villageSearchQuery}
+                    onChange={(e) => setVillageSearchQuery(e.target.value)}
+                    placeholder="यादीत नाव शोधा..."
+                    className="w-full h-10 px-3 text-sm font-semibold bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Village Patient Table */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-extrabold text-slate-900">
+                  रुग्ण यादी — गाव:{' '}
+                  <span className="text-emerald-800">
+                    {villageReportFilter === 'ALL' ? 'सर्व गावे' : villageReportFilter}
+                  </span>{' '}
+                  ({villageFilteredPatients.length} रुग्ण)
+                </h3>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200 text-slate-700">
+                      <th className="py-2.5 px-3 font-bold">अ.क्र.</th>
+                      <th className="py-2.5 px-3 font-bold">रुग्णाचे नाव</th>
+                      <th className="py-2.5 px-2.5 font-bold">लिंग</th>
+                      <th className="py-2.5 px-3 font-bold">मोबाईल</th>
+                      <th className="py-2.5 px-3 font-bold">गाव</th>
+                      <th className="py-2.5 px-2.5 font-bold">आजार</th>
+                      <th className="py-2.5 px-3 font-bold">पहिली नोंदणी</th>
+                      <th className="py-2.5 px-3 font-bold">शेवटची भेट व औषधे</th>
+                      <th className="py-2.5 px-3 font-bold text-right">कृती (Action)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {villageFilteredPatients.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-8 text-center text-slate-500">
+                          या गावाचा कोणताही रुग्ण डेटा आढळला नाही.
+                        </td>
+                      </tr>
+                    ) : (
+                      villageFilteredPatients.map((p, index) => (
+                        <tr key={p.key} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500">
+                            {index + 1}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">
+                            {p.fullName}
+                          </td>
+                          <td className="py-2.5 px-2.5 text-slate-700">{p.gender}</td>
+                          <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700">
+                            {p.mobile || '-'}
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-800">
+                            {p.village}
+                          </td>
+                          <td className="py-2.5 px-2.5 font-bold text-red-700">
+                            {p.disease}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700">
+                            {p.firstVisitDate}
+                          </td>
+                          <td className="py-2.5 px-3 text-xs">
+                            <span className="font-mono tabular-nums font-bold text-slate-900">
+                              {p.lastVisitDate}
+                            </span>
+                            {p.lastMedicines.length > 0 && (
+                              <div className="text-slate-600 mt-0.5">
+                                {p.lastMedicines
+                                  .map((m) => `${m.medName} (${m.qty})`)
+                                  .join(', ')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openPatientCardModal(p)}
+                                className="px-2.5 py-1 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md"
+                              >
+                                PDF कार्ड
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSelectPatient(p)}
+                                className="px-2.5 py-1 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md"
+                              >
+                                + औषध द्या
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
+            SECTION 4: औषधे व गावे मास्टर यादी (Medicines & Villages Master Lists)
+           ===================================================================== */}
+        {activeSection === 'master_lists' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Medicines List */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="border-b border-slate-200 pb-3">
+                <h3 className="text-base font-extrabold text-slate-900">
+                  💊 औषधांची यादी (Medicines — {medicines.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  OPD फॉर्ममधील ड्रॉपडाउनसाठी उपलब्ध एनसीडी औषधे
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newMedicineName}
+                  onChange={(e) => setNewMedicineName(e.target.value)}
+                  placeholder="नवीन औषधाचे नाव (उदा. Tab. Cilnidipine 10mg)"
+                  className="flex-1 h-10 px-3 text-xs font-semibold bg-white border border-slate-300 rounded-lg"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddMasterItem('Medicines', newMedicineName)}
+                  className="px-4 h-10 text-xs font-extrabold text-white bg-slate-900 hover:bg-slate-800 rounded-lg whitespace-nowrap shrink-0"
+                >
+                  + औषध जोडा
+                </button>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-200 border border-slate-200 rounded-lg">
+                {medicines.map((med, i) => (
+                  <div
+                    key={med}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-800 flex items-center justify-between"
+                  >
+                    <span>{med}</span>
+                    <span className="font-mono tabular-nums text-slate-400">#{i + 1}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Villages List */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="border-b border-slate-200 pb-3">
+                <h3 className="text-base font-extrabold text-slate-900">
+                  🏡 गावांची यादी (Villages — {villages.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  प्राथमिक आरोग्य केंद्र भादा कार्यक्षेत्रातील गावे
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newVillageName}
+                  onChange={(e) => setNewVillageName(e.target.value)}
+                  placeholder="नवीन गावाचे नाव टाका..."
+                  className="flex-1 h-10 px-3 text-xs font-semibold bg-white border border-slate-300 rounded-lg"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddMasterItem('Villages', newVillageName)}
+                  className="px-4 h-10 text-xs font-extrabold text-white bg-slate-900 hover:bg-slate-800 rounded-lg whitespace-nowrap shrink-0"
+                >
+                  + गाव जोडा
+                </button>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-200 border border-slate-200 rounded-lg">
+                {villages.map((vil, i) => (
+                  <div
+                    key={vil}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-800 flex items-center justify-between"
+                  >
+                    <span>{vil}</span>
+                    <span className="font-mono tabular-nums text-slate-400">#{i + 1}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Quiet Institutional Footer */}
+      <footer className="mt-auto border-t border-slate-200 bg-white px-6 py-4 text-xs text-slate-500 no-print">
+        <div className="max-w-[1360px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>
+            प्राथमिक आरोग्य केंद्र, भादा (ता. औसा, जि. लातूर) · NCD बाह्यरुग्ण औषध वाटप व रिपोर्ट प्रणाली
+          </span>
+          <span>प्राथमिक आरोग्य केंद्र, भादा</span>
+        </div>
+      </footer>
+
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        payload={confirmPayload}
+        isSubmitting={isConfirmSubmitting}
+        onClose={() => {
+          if (!isConfirmSubmitting) setConfirmPayload(null);
+        }}
+      />
+
+      {/* Printable Report & Treatment Card Modal */}
+      <PrintPreviewModal
+        report={previewReport}
+        onClose={() => setPreviewReport(null)}
+      />
+    </div>
+  );
+}

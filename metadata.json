@@ -1,0 +1,6 @@
+{
+  "name": "PHC Bhada - NCD OPD & Reports",
+  "description": "Primary Health Centre Bhada NCD OPD patient registration, medicine distribution tracking, date-wise treatment history, and village-wise reports synced with Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
