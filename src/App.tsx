@@ -24,6 +24,7 @@ import {
   DEFAULT_VILLAGES,
   fetchFromPhbhadaAppsScript,
   formatIsoToDisplay,
+  getCanonicalVillageGroup,
   getPatientHistoryFromRecords,
   loadAttachedPhcDataset,
   PHBHADA_SCRIPT_WEB_APP_URL,
@@ -88,6 +89,9 @@ export default function App() {
   const [gender, setGender] = useState<string>('Male (पुरुष)');
   const [mobile, setMobile] = useState<string>('');
   const [formVillage, setFormVillage] = useState<string>('भादा');
+  const [isOtherVillage, setIsOtherVillage] = useState<boolean>(false);
+  const [otherVillageName, setOtherVillageName] = useState<string>('');
+  const [alsoAddToMasterVillages, setAlsoAddToMasterVillages] = useState<boolean>(false);
   const [disease, setDisease] = useState<string>('BP');
   const [bpReading, setBpReading] = useState<string>('');
   const [sugarReading, setSugarReading] = useState<string>('');
@@ -165,40 +169,57 @@ export default function App() {
   const searchedPatients = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return allPatients.filter((p) => {
-      const vilMatch = searchVillage === 'ALL' || p.village === searchVillage;
-      if (!vilMatch) return false;
+      if (searchVillage !== 'ALL') {
+        const pGroup = getCanonicalVillageGroup(p.village, villages);
+        if (searchVillage === 'इतर') {
+          if (pGroup !== 'इतर') return false;
+        } else {
+          if (p.village !== searchVillage && pGroup !== searchVillage) return false;
+        }
+      }
       if (!q) return true;
       return (
         p.fullName.toLowerCase().includes(q) ||
         p.fName.toLowerCase().includes(q) ||
         p.lName.toLowerCase().includes(q) ||
         p.mobile.toLowerCase().includes(q) ||
+        p.village.toLowerCase().includes(q) ||
         p.lastOpdNo.toLowerCase().includes(q)
       );
     });
-  }, [allPatients, searchVillage, searchQuery]);
+  }, [allPatients, searchVillage, searchQuery, villages]);
 
   // Selected patient's date-wise history
   const selectedPatientHistory = useMemo(() => {
-    if (!fName.trim() || !lName.trim() || !formVillage.trim()) {
+    if (!fName.trim() || !lName.trim()) {
       if (selectedPatient) {
         return getPatientHistoryFromRecords(records, selectedPatient);
       }
       return [];
     }
+    const targetVil = isOtherVillage && otherVillageName.trim()
+      ? `इतर (${otherVillageName.trim()})`
+      : formVillage;
     return getPatientHistoryFromRecords(records, {
       fName,
       lName,
-      village: formVillage,
+      village: targetVil,
     });
-  }, [records, fName, lName, formVillage, selectedPatient]);
+  }, [records, fName, lName, formVillage, isOtherVillage, otherVillageName, selectedPatient]);
 
   // Filtered records for Date-wise Report (Section 2)
   const dateFilteredRecords = useMemo(() => {
     return records.filter((r) => {
       if (fromDateFilter && r.isoDate < fromDateFilter) return false;
       if (toDateFilter && r.isoDate > toDateFilter) return false;
-      if (dateReportVillage !== 'ALL' && r.village !== dateReportVillage) return false;
+      if (dateReportVillage !== 'ALL') {
+        const rGroup = getCanonicalVillageGroup(r.village, villages);
+        if (dateReportVillage === 'इतर') {
+          if (rGroup !== 'इतर') return false;
+        } else {
+          if (r.village !== dateReportVillage && rGroup !== dateReportVillage) return false;
+        }
+      }
       if (dateReportDisease !== 'ALL' && r.disease !== dateReportDisease) return false;
       if (dateReportMedicine !== 'ALL' && r.medName !== dateReportMedicine) return false;
       return true;
@@ -210,6 +231,7 @@ export default function App() {
     dateReportVillage,
     dateReportDisease,
     dateReportMedicine,
+    villages,
   ]);
 
   // Medicine-wise consumption totals for Date-wise Report
@@ -239,7 +261,14 @@ export default function App() {
     const q = timelineSearch.trim().toLowerCase();
     return allPatients
       .filter((p) => {
-        if (dateReportVillage !== 'ALL' && p.village !== dateReportVillage) return false;
+        if (dateReportVillage !== 'ALL') {
+          const pGroup = getCanonicalVillageGroup(p.village, villages);
+          if (dateReportVillage === 'इतर') {
+            if (pGroup !== 'इतर') return false;
+          } else {
+            if (p.village !== dateReportVillage && pGroup !== dateReportVillage) return false;
+          }
+        }
         if (dateReportDisease !== 'ALL' && p.disease !== dateReportDisease) return false;
         if (q && !p.fullName.toLowerCase().includes(q) && !p.village.toLowerCase().includes(q)) {
           return false;
@@ -265,6 +294,7 @@ export default function App() {
     fromDateFilter,
     toDateFilter,
     timelineSearch,
+    villages,
   ]);
 
   // Filtered patients for Village-wise Report (Section 3)
@@ -272,12 +302,20 @@ export default function App() {
     const q = villageSearchQuery.trim().toLowerCase();
     return allPatients
       .filter((p) => {
-        if (villageReportFilter !== 'ALL' && p.village !== villageReportFilter) return false;
+        if (villageReportFilter !== 'ALL') {
+          const pGroup = getCanonicalVillageGroup(p.village, villages);
+          if (villageReportFilter === 'इतर') {
+            if (pGroup !== 'इतर') return false;
+          } else {
+            if (p.village !== villageReportFilter && pGroup !== villageReportFilter) return false;
+          }
+        }
         if (villageDiseaseFilter !== 'ALL' && p.disease !== villageDiseaseFilter) return false;
         if (
           q &&
           !p.fullName.toLowerCase().includes(q) &&
           !p.mobile.toLowerCase().includes(q) &&
+          !p.village.toLowerCase().includes(q) &&
           !p.disease.toLowerCase().includes(q)
         ) {
           return false;
@@ -285,7 +323,7 @@ export default function App() {
         return true;
       })
       .sort((a, b) => a.fullName.localeCompare(b.fullName, 'mr'));
-  }, [allPatients, villageReportFilter, villageDiseaseFilter, villageSearchQuery]);
+  }, [allPatients, villageReportFilter, villageDiseaseFilter, villageSearchQuery, villages]);
 
   // Village-wise patient count breakdown
   const villageCountsSummary = useMemo(() => {
@@ -293,8 +331,16 @@ export default function App() {
       string,
       { village: string; total: number; bp: number; diabetes: number; both: number }
     >();
+
+    // Pre-populate official villages
+    villages.forEach((v) => {
+      map.set(v, { village: v, total: 0, bp: 0, diabetes: 0, both: 0 });
+    });
+    // Ensure 'इतर' bucket exists
+    map.set('इतर', { village: 'इतर', total: 0, bp: 0, diabetes: 0, both: 0 });
+
     allPatients.forEach((p) => {
-      const v = p.village || 'इतर';
+      const v = getCanonicalVillageGroup(p.village, villages);
       const entry = map.get(v) || { village: v, total: 0, bp: 0, diabetes: 0, both: 0 };
       entry.total += 1;
       if (p.disease === 'BP') entry.bp += 1;
@@ -302,8 +348,15 @@ export default function App() {
       else if (p.disease === 'Both') entry.both += 1;
       map.set(v, entry);
     });
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [allPatients]);
+
+    return Array.from(map.values())
+      .filter((v) => v.total > 0 || v.village === 'इतर' || villages.slice(0, 4).includes(v.village))
+      .sort((a, b) => {
+        if (a.village === 'इतर') return 1;
+        if (b.village === 'इतर') return -1;
+        return b.total - a.total;
+      });
+  }, [allPatients, villages]);
 
   // Refresh data from hardcoded phbhada@gmail.com Apps Script Web App
   const handleSyncFromPhbhadaSheet = async () => {
@@ -333,7 +386,26 @@ export default function App() {
     setLName(p.lName);
     setGender(p.gender || 'Male (पुरुष)');
     setMobile(p.mobile || '');
-    setFormVillage(p.village || villages[0] || 'भादा');
+
+    const isMaster = villages.some(
+      (v) => v.trim().toLowerCase() === p.village.trim().toLowerCase()
+    );
+
+    if (!isMaster || p.village.startsWith('इतर')) {
+      setIsOtherVillage(true);
+      const match = p.village.match(/^इतर\s*\((.*?)\)$/);
+      if (match) {
+        setOtherVillageName(match[1]);
+      } else {
+        setOtherVillageName(p.village.replace(/^इतर\s*[-:]?\s*/, ''));
+      }
+      setFormVillage('__OTHER__');
+    } else {
+      setIsOtherVillage(false);
+      setOtherVillageName('');
+      setFormVillage(p.village || villages[0] || 'भादा');
+    }
+
     setDisease(p.disease || 'BP');
     if (p.lastMedicines.length > 0) {
       setMedRows(
@@ -381,6 +453,9 @@ export default function App() {
     setLName('');
     setGender('Male (पुरुष)');
     setMobile('');
+    setIsOtherVillage(false);
+    setOtherVillageName('');
+    setAlsoAddToMasterVillages(false);
     setFormVillage(villages[0] || 'भादा');
     setDisease('BP');
     setBpReading('');
@@ -419,7 +494,24 @@ export default function App() {
       .map((m) => ({ medName: m.medName.trim(), qty: m.qty.trim() }))
       .filter((m) => m.medName && m.qty);
 
-    if (!opdNo.trim() || !fName.trim() || !formVillage.trim()) {
+    let finalVillage = formVillage;
+    let masterVillageToPersist: string | undefined;
+
+    if (isOtherVillage || formVillage === '__OTHER__') {
+      const cleanOther = otherVillageName.trim();
+      if (!cleanOther) {
+        showNotice('error', 'कृपया इतर गावाचे नाव टाका.');
+        return;
+      }
+      if (alsoAddToMasterVillages) {
+        finalVillage = cleanOther;
+        masterVillageToPersist = cleanOther;
+      } else {
+        finalVillage = cleanOther.startsWith('इतर') ? cleanOther : `इतर (${cleanOther})`;
+      }
+    }
+
+    if (!opdNo.trim() || !fName.trim() || !finalVillage.trim()) {
       showNotice('error', 'कृपया OPD क्रमांक, रुग्णाचे पहिले नाव आणि गाव आवर्जून भरा.');
       return;
     }
@@ -437,7 +529,7 @@ export default function App() {
       lName: lName.trim(),
       gender,
       mobile: mobile.trim(),
-      village: formVillage,
+      village: finalVillage,
       disease,
       bp: bpReading.trim(),
       sugar: sugarReading.trim(),
@@ -459,7 +551,13 @@ export default function App() {
           value: `${formatIsoToDisplay(visitDate)} · OPD #${submission.opdNo}`,
         },
         { label: 'रुग्णाचे नाव', value: fullName },
-        { label: 'गाव व लिंग', value: `${submission.village} · ${submission.gender}` },
+        {
+          label: 'गाव (Village)',
+          value: isOtherVillage
+            ? `${finalVillage} (गावनिहाय यादीत "इतर" म्हणून दिसेल)`
+            : finalVillage,
+        },
+        { label: 'लिंग', value: submission.gender },
         { label: 'आजार (Diagnosis)', value: submission.disease },
         { label: 'वाटप केलेली औषधे (Medicines)', value: medsText },
       ],
@@ -467,6 +565,18 @@ export default function App() {
       onConfirm: async () => {
         setIsConfirmSubmitting(true);
         try {
+          if (masterVillageToPersist) {
+            const cleanV = masterVillageToPersist;
+            if (!villages.some((v) => v.toLowerCase() === cleanV.toLowerCase())) {
+              try {
+                await addMasterItemToPhbhadaSheet(PHBHADA_SCRIPT_WEB_APP_URL, 'Villages', cleanV);
+              } catch {
+                // non-fatal
+              }
+              setVillages((prev) => (prev.includes(cleanV) ? prev : [...prev, cleanV]));
+            }
+          }
+
           await saveRecordToPhbhadaSheet(PHBHADA_SCRIPT_WEB_APP_URL, submission);
 
           const displayDate = formatIsoToDisplay(submission.visitDate);
@@ -490,9 +600,10 @@ export default function App() {
 
           setRecords((prev) => [...prev, ...newRows]);
           setConfirmPayload(null);
+          handleClearOpdForm();
           showNotice(
             'success',
-            `✅ रुग्ण "${fullName}" (OPD #${submission.opdNo}) ची ${validMeds.length} औषध नोंदी यशस्वीरित्या जतन झाल्या!`
+            `✅ रुग्ण "${fullName}" (OPD #${submission.opdNo}, गाव: ${finalVillage}) ची ${validMeds.length} औषध नोंदी यशस्वीरित्या जतन झाल्या!`
           );
         } catch (err: any) {
           showNotice('error', err?.message || 'माहिती सेव्ह करताना त्रुटी आली.');
@@ -811,6 +922,7 @@ export default function App() {
                           {v}
                         </option>
                       ))}
+                      <option value="इतर">🌐 इतर (इतर सर्व गावे)</option>
                     </select>
                   </div>
 
@@ -1139,25 +1251,85 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label
-                      htmlFor="form-village"
-                      className="block text-xs sm:text-sm font-bold text-slate-800 mb-1"
-                    >
-                      गाव (Village): *
-                    </label>
-                    <select
-                      id="form-village"
-                      value={formVillage}
-                      onChange={(e) => setFormVillage(e.target.value)}
-                      required
-                      className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
-                    >
-                      {villages.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
+                    <div className="flex items-center justify-between mb-1">
+                      <label
+                        htmlFor="form-village"
+                        className="block text-xs sm:text-sm font-bold text-slate-800"
+                      >
+                        गाव (Village): *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextState = !isOtherVillage;
+                          setIsOtherVillage(nextState);
+                          if (nextState) {
+                            setFormVillage('__OTHER__');
+                          } else {
+                            setFormVillage(villages[0] || 'भादा');
+                            setOtherVillageName('');
+                          }
+                        }}
+                        className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center gap-1"
+                      >
+                        {isOtherVillage ? '← यादीतून निवडा' : '➕ इतर गाव'}
+                      </button>
+                    </div>
+
+                    {!isOtherVillage ? (
+                      <select
+                        id="form-village"
+                        value={formVillage}
+                        onChange={(e) => {
+                          if (e.target.value === '__OTHER__') {
+                            setIsOtherVillage(true);
+                            setFormVillage('__OTHER__');
+                          } else {
+                            setFormVillage(e.target.value);
+                          }
+                        }}
+                        required
+                        className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
+                      >
+                        {villages.map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                        <option value="__OTHER__" className="text-emerald-700 font-bold">
+                          ➕ इतर गाव (यादीत नसलेले नवीन गाव)
                         </option>
-                      ))}
-                    </select>
+                      </select>
+                    ) : (
+                      <div className="space-y-2">
+                        <input
+                          id="other-village-name"
+                          type="text"
+                          value={otherVillageName}
+                          onChange={(e) => setOtherVillageName(e.target.value)}
+                          placeholder="इतर गावाचे नाव टाका (उदा. तांदुळजा, किल्लारी)"
+                          autoFocus
+                          required
+                          className="w-full h-12 px-3 text-base font-bold bg-amber-50/60 border-2 border-emerald-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                        />
+
+                        <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1.5">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                            <span>हे गाव गावनिहाय यादीमध्ये "इतर" म्हणून दिसेल.</span>
+                          </div>
+                          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-800 pt-0.5">
+                            <input
+                              type="checkbox"
+                              checked={alsoAddToMasterVillages}
+                              onChange={(e) => setAlsoAddToMasterVillages(e.target.checked)}
+                              className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600"
+                            />
+                            <span>या गावाला मुख्य यादीतही जोडा (Master List)</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1432,6 +1604,7 @@ export default function App() {
                         {v}
                       </option>
                     ))}
+                    <option value="इतर">🌐 इतर (इतर सर्व गावे)</option>
                   </select>
                 </div>
 
@@ -1813,11 +1986,15 @@ export default function App() {
                     onClick={() => setVillageReportFilter(vc.village)}
                     className={`min-h-[38px] px-3.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap shrink-0 ${
                       villageReportFilter === vc.village
-                        ? 'bg-emerald-800 text-white border-emerald-800 shadow-xs'
+                        ? vc.village === 'इतर'
+                          ? 'bg-amber-800 text-white border-amber-800 shadow-xs'
+                          : 'bg-emerald-800 text-white border-emerald-800 shadow-xs'
+                        : vc.village === 'इतर'
+                        ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 font-extrabold'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    {vc.village} ({vc.total})
+                    {vc.village === 'इतर' ? '🌐 इतर गावे' : vc.village} ({vc.total})
                   </button>
                 ))}
               </div>

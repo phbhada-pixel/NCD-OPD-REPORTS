@@ -393,6 +393,27 @@ export function buildPatientSummaries(records: OpdRowRecord[]): PatientSummary[]
     .sort((a, b) => b.lastVisitIso.localeCompare(a.lastVisitIso));
 }
 
+/**
+ * Returns the canonical village group name for reporting.
+ * If village is not in the PHC master village list or starts with 'इतर', it returns 'इतर'.
+ */
+export function getCanonicalVillageGroup(
+  villageName: string,
+  masterVillages: string[] = DEFAULT_VILLAGES
+): string {
+  const v = (villageName || '').trim();
+  if (!v || v === 'इतर' || v.startsWith('इतर') || v.toLowerCase().startsWith('other')) {
+    return 'इतर';
+  }
+  const isMaster = masterVillages.some(
+    (mv) => mv.trim().toLowerCase() === v.toLowerCase()
+  );
+  if (isMaster) {
+    return v;
+  }
+  return 'इतर';
+}
+
 export function getPatientHistoryFromRecords(
   records: OpdRowRecord[],
   patient: { fName: string; lName: string; village: string; mName?: string }
@@ -404,7 +425,11 @@ export function getPatientHistoryFromRecords(
   const matching = records.filter((r) => {
     const fMatch = r.fName.trim().toLowerCase() === fTarget;
     const lMatch = r.lName.trim().toLowerCase() === lTarget;
-    const vMatch = r.village.trim().toLowerCase() === vTarget;
+    const rVil = r.village.trim().toLowerCase();
+    const vMatch =
+      rVil === vTarget ||
+      (rVil.startsWith('इतर') && vTarget.startsWith('इतर')) ||
+      (rVil.includes(vTarget) && vTarget.length > 2);
     return fMatch && lMatch && vMatch;
   });
 
@@ -478,7 +503,9 @@ export async function fetchFromPhbhadaAppsScript(
   const vilSet = new Set<string>(data.villages || []);
 
   records.forEach((r) => {
-    if (r.village && r.village !== '-') vilSet.add(r.village);
+    if (r.village && r.village !== '-' && !r.village.startsWith('इतर') && !r.village.startsWith('Other')) {
+      vilSet.add(r.village);
+    }
     if (r.medName && r.medName !== '-') medSet.add(r.medName);
   });
 
