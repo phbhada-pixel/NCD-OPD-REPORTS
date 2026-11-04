@@ -141,53 +141,63 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
     >
-      <div className="w-full max-w-4xl bg-white rounded-xl border border-slate-200 shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
+      <div className="w-full max-w-4xl bg-white rounded-xl border border-slate-200 shadow-2xl overflow-hidden my-auto max-h-[96vh] sm:max-h-[92vh] flex flex-col">
         {/* Action Header (Hidden when printing) */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-slate-200 bg-slate-50 no-print">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">
-              {report.type === 'patient_card' && 'NCD रुग्ण उपचार कार्ड व इतिहास (Treatment History Card)'}
-              {report.type === 'village_report' && `गाववार रुग्ण यादी रिपोर्ट (${report.villageName})`}
-              {report.type === 'date_wise_report' && 'दिनांकनिहाय औषध वाटप व रुग्ण अहवाल'}
-            </h3>
-            <p className="text-xs text-slate-500">
-              तुम्ही हा अहवाल थेट प्रिंट / PDF सेव्ह करू शकता किंवा Excel (CSV) मध्ये डाउनलोड करू शकता.
-            </p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-slate-50 no-print">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                {report.type === 'patient_card' && 'NCD रुग्ण उपचार कार्ड व इतिहास (Treatment History Card)'}
+                {report.type === 'village_report' && `गाववार रुग्ण यादी रिपोर्ट (${report.villageName})`}
+                {report.type === 'date_wise_report' && 'दिनांकनिहाय औषध वाटप व रुग्ण अहवाल'}
+              </h3>
+              <p className="text-xs text-slate-500 hidden sm:block mt-0.5">
+                तुम्ही हा अहवाल थेट प्रिंट / PDF सेव्ह करू शकता किंवा Excel (CSV) मध्ये डाउनलोड करू शकता.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="sm:hidden p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-200/60 transition-colors shrink-0"
+              aria-label="बंद करा"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={handleDownloadCsv}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-initial px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap min-h-[40px]"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
-              <span>Excel / CSV डाउनलोड</span>
+              <span>CSV</span>
             </button>
             <button
               type="button"
               onClick={handleDownloadPrintableHtml}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-initial px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap min-h-[40px]"
             >
               <Download className="w-4 h-4 text-blue-700" />
-              <span>HTML रिपोर्ट फाईल</span>
+              <span>HTML</span>
             </button>
             <button
               type="button"
               onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center justify-center gap-1.5 flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap min-h-[40px]"
             >
               <Printer className="w-4 h-4" />
-              <span>प्रिंट / Save PDF</span>
+              <span>प्रिंट / PDF</span>
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-200/60 transition-colors"
+              className="hidden sm:inline-flex p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-200/60 transition-colors shrink-0"
               aria-label="बंद करा"
             >
               <X className="w-5 h-5" />
@@ -196,10 +206,10 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
         </div>
 
         {/* Printable Document Content */}
-        <div className="p-8 overflow-y-auto flex-1 bg-white" id="printable-report-area">
+        <div className="p-4 sm:p-8 overflow-y-auto flex-1 bg-white" id="printable-report-area">
           {/* Official Header */}
-          <div className="text-center border-b-2 border-slate-900 pb-4 mb-6">
-            <p className="text-xs font-semibold tracking-wider text-slate-600">
+          <div className="text-center border-b-2 border-slate-900 pb-3 sm:pb-4 mb-4 sm:mb-6">
+            <p className="text-[11px] sm:text-xs font-semibold tracking-wider text-slate-600">
               सार्वजनिक आरोग्य विभाग, महाराष्ट्र शासन · जिल्हा परिषद लातूर
             </p>
             <h2 className="text-2xl font-extrabold text-slate-900 mt-1">
