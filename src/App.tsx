@@ -37,6 +37,7 @@ import {
   PatientSummary,
 } from './types/phc';
 import { ConfirmActionPayload, ConfirmModal } from './components/ConfirmModal';
+import { HighlightText } from './components/HighlightText';
 import { OpdEntryModal } from './components/OpdEntryModal';
 import { PrintPreviewModal, ReportPreviewData } from './components/PrintPreviewModal';
 
@@ -1037,7 +1038,7 @@ export default function App() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-bold text-slate-900 truncate">
-                                {p.fullName}
+                                <HighlightText text={p.fullName} query={searchQuery} />
                               </span>
                               <span className="px-2 py-0.5 text-[11px] font-extrabold text-red-700 bg-red-50 border border-red-200 rounded-md shrink-0">
                                 {p.disease}
@@ -1045,14 +1046,16 @@ export default function App() {
                             </div>
                             <div className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-1.5">
                               <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
-                                {p.village}
+                                <HighlightText text={p.village} query={searchQuery} />
                               </span>
                               <span>·</span>
                               <span>{p.gender}</span>
                               {p.mobile && (
                                 <>
                                   <span>·</span>
-                                  <span className="font-mono tabular-nums">{p.mobile}</span>
+                                  <span className="font-mono tabular-nums">
+                                    <HighlightText text={p.mobile} query={searchQuery} />
+                                  </span>
                                 </>
                               )}
                               <span>·</span>
@@ -1848,10 +1851,11 @@ export default function App() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <span className="text-sm font-bold text-slate-900 block">
-                              {index + 1}. {p.fullName}
+                              {index + 1}. <HighlightText text={p.fullName} query={villageSearchQuery} />
                             </span>
                             <span className="text-xs text-slate-600 block mt-0.5">
-                              {p.village} · {p.gender} · {p.mobile || '-'}
+                              <HighlightText text={p.village} query={villageSearchQuery} /> · {p.gender} ·{' '}
+                              <HighlightText text={p.mobile || '-'} query={villageSearchQuery} />
                             </span>
                           </div>
                           <span className="px-2 py-0.5 text-xs font-extrabold text-red-700 bg-red-50 border border-red-200 rounded-md shrink-0">
@@ -1912,12 +1916,16 @@ export default function App() {
                             <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500">
                               {index + 1}
                             </td>
-                            <td className="py-2.5 px-3 font-bold text-slate-900">{p.fullName}</td>
+                            <td className="py-2.5 px-3 font-bold text-slate-900">
+                              <HighlightText text={p.fullName} query={villageSearchQuery} />
+                            </td>
                             <td className="py-2.5 px-2.5 text-slate-700">{p.gender}</td>
                             <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700">
-                              {p.mobile || '-'}
+                              <HighlightText text={p.mobile || '-'} query={villageSearchQuery} />
                             </td>
-                            <td className="py-2.5 px-3 font-semibold text-slate-800">{p.village}</td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-800">
+                              <HighlightText text={p.village} query={villageSearchQuery} />
+                            </td>
                             <td className="py-2.5 px-2.5 font-bold text-red-700">{p.disease}</td>
                             <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700">
                               {p.firstVisitDate}
