@@ -46,6 +46,56 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
     year: 'numeric',
   });
 
+  // Date-wise grouping for Patient Treatment Card
+  const patientDateGroups = React.useMemo(() => {
+    if (report?.type !== 'patient_card') return [];
+    const groupsMap = new Map<
+      string,
+      {
+        date: string;
+        isoDate: string;
+        opd: string;
+        bp: string;
+        sugar: string;
+        disease: string;
+        items: PatientHistoryItem[];
+        totalQty: number;
+      }
+    >();
+
+    report.history.forEach((item) => {
+      const dateKey = item.date || item.isoDate || 'इतर दिनांक';
+      const existing = groupsMap.get(dateKey);
+      const qtyNum = parseInt(item.qty, 10) || 0;
+      if (existing) {
+        existing.items.push(item);
+        existing.totalQty += qtyNum;
+        if (!existing.opd && item.opd) existing.opd = item.opd;
+        if (!existing.bp && item.bp) existing.bp = item.bp;
+        if (!existing.sugar && item.sugar) existing.sugar = item.sugar;
+        if (!existing.disease && item.disease) existing.disease = item.disease;
+      } else {
+        groupsMap.set(dateKey, {
+          date: item.date,
+          isoDate: item.isoDate,
+          opd: item.opd,
+          bp: item.bp || '',
+          sugar: item.sugar || '',
+          disease: item.disease || '',
+          items: [item],
+          totalQty: qtyNum,
+        });
+      }
+    });
+
+    return Array.from(groupsMap.values());
+  }, [report]);
+
+  const totalPatientTablets = React.useMemo(() => {
+    if (report?.type !== 'patient_card') return 0;
+    return report.history.reduce((sum, item) => sum + (parseInt(item.qty, 10) || 0), 0);
+  }, [report]);
+
   const handlePrint = () => {
     window.print();
   };
@@ -57,12 +107,25 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
     if (report.type === 'patient_card') {
       const p = report.patient;
       filename = `${p.fName}_${p.lName}_Treatment_History.csv`;
-      csvContent += `प्राथमिक आरोग्य केंद्र भादा - रुग्ण उपचार इतिहास\n`;
-      csvContent += `रुग्णाचे नाव,${p.fName} ${p.mName} ${p.lName},गाव,${p.village},मोबाईल,${p.mobile},आजार,${p.disease}\n\n`;
-      csvContent += `दिनांक (Date),OPD क्र.,रक्तदाब (BP),शुगर (Sugar),दिलेले औषध (Medicine),मात्रा (Qty)\n`;
-      report.history.forEach((r) => {
-        csvContent += `"${r.date}","${r.opd}","${r.bp || '-'}","${r.sugar || '-'}","${r.medicine}","${r.qty}"\n`;
-      });
+      csvContent += `प्राथमिक आरोग्य केंद्र भादा - NCD रुग्ण उपचार इतिहास (दिनांकनिहाय वर्गवारी)\n`;
+      csvContent += `रुग्णाचे नाव,${p.fName} ${p.mName} ${p.lName},गाव,${p.village},मोबाईल,${p.mobile},आजार,${p.disease}\n`;
+      csvContent += `एकूण भेटी/तारखा,${patientDateGroups.length},एकूण गोळ्या वाटप,${totalPatientTablets}\n\n`;
+
+      if (patientDateGroups.length > 1) {
+        patientDateGroups.forEach((group, gIdx) => {
+          csvContent += `[भेट #${patientDateGroups.length - gIdx} - दिनांक: ${group.date}],OPD क्र.: ${group.opd || '-'},रक्तदाब: ${group.bp || '-'},शुगर: ${group.sugar || '-'}\n`;
+          csvContent += `अ.क्र.,दिलेले औषध (Medicine),मात्रा (Qty)\n`;
+          group.items.forEach((item, idx) => {
+            csvContent += `${idx + 1},"${item.medicine}","${item.qty}"\n`;
+          });
+          csvContent += `एकूण गोळ्या,,${group.totalQty}\n\n`;
+        });
+      } else {
+        csvContent += `दिनांक (Date),OPD क्र.,रक्तदाब (BP),शुगर (Sugar),दिलेले औषध (Medicine),मात्रा (Qty)\n`;
+        report.history.forEach((r) => {
+          csvContent += `"${r.date}","${r.opd}","${r.bp || '-'}","${r.sugar || '-'}","${r.medicine}","${r.qty}"\n`;
+        });
+      }
     } else if (report.type === 'village_report') {
       filename = `PHC_Bhada_Village_${report.villageName}_Patients.csv`;
       csvContent += `प्राथमिक आरोग्य केंद्र भादा - गाववार रुग्ण यादी (${report.villageName})\n`;
@@ -229,11 +292,12 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
 
           {/* 1. PATIENT TREATMENT CARD */}
           {report.type === 'patient_card' && (
-            <div>
-              <div className="border border-slate-800 rounded-lg p-4 mb-6 bg-slate-50/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div className="space-y-5">
+              {/* Patient Demographics & Summary Box */}
+              <div className="border border-slate-800 rounded-lg p-4 bg-slate-50/60 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-sm">
                 <div>
                   <span className="text-slate-600 font-medium">रुग्णाचे पूर्ण नाव: </span>
-                  <span className="font-bold text-slate-900">
+                  <span className="font-black text-slate-900">
                     {report.patient.fName} {report.patient.mName} {report.patient.lName}
                   </span>
                 </div>
@@ -256,77 +320,204 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
                   <span className="font-bold text-red-700">{report.patient.disease}</span>
                 </div>
                 <div>
-                  <span className="text-slate-600 font-medium">एकूण नोंदणीकृत नोंदी: </span>
+                  <span className="text-slate-600 font-medium">उपचार भेटी (एकूण दिवस): </span>
+                  <span className="font-black text-emerald-800 font-mono tabular-nums">
+                    {patientDateGroups.length} दिवस (भेट तारखा)
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-600 font-medium">एकूण वाटप गोळ्या संख्या: </span>
+                  <span className="font-black text-emerald-800 font-mono tabular-nums">
+                    {totalPatientTablets} गोळ्या
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-600 font-medium">एकूण औषध नोंदी: </span>
                   <span className="font-bold text-slate-900 font-mono tabular-nums">
                     {report.history.length}
                   </span>
                 </div>
               </div>
 
-              <table className="w-full border-collapse border border-slate-800 text-sm">
-                <thead>
-                  <tr className="bg-slate-100">
-                    <th className="border border-slate-800 px-3 py-2 text-left font-bold">
-                      अ.क्र.
-                    </th>
-                    <th className="border border-slate-800 px-3 py-2 text-left font-bold">
-                      दिनांक (Date)
-                    </th>
-                    <th className="border border-slate-800 px-3 py-2 text-left font-bold">
-                      OPD क्र.
-                    </th>
-                    <th className="border border-slate-800 px-3 py-2 text-left font-bold">
-                      रक्तदाब / शुगर
-                    </th>
-                    <th className="border border-slate-800 px-3 py-2 text-left font-bold">
-                      दिलेले औषध (Medicine)
-                    </th>
-                    <th className="border border-slate-800 px-3 py-2 text-right font-bold">
-                      मात्रा (Qty)
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.history.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="border border-slate-800 px-4 py-6 text-center text-slate-500"
-                      >
-                        कोणताही जुना उपचार इतिहास उपलब्ध नाही.
-                      </td>
-                    </tr>
-                  ) : (
-                    report.history.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="border border-slate-800 px-3 py-2 font-mono tabular-nums">
-                          {idx + 1}
-                        </td>
-                        <td className="border border-slate-800 px-3 py-2 font-mono tabular-nums font-medium">
-                          {item.date}
-                        </td>
-                        <td className="border border-slate-800 px-3 py-2 font-mono tabular-nums">
-                          {item.opd}
-                        </td>
-                        <td className="border border-slate-800 px-3 py-2 font-mono tabular-nums text-xs">
+              {/* Informational Banner for Multi-Date Grouping */}
+              {patientDateGroups.length > 1 && (
+                <div className="flex items-center justify-between px-3.5 py-2 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-950 no-print">
+                  <span>
+                    📅 या रुग्णाच्या <strong>{patientDateGroups.length}</strong> वेगवेगळ्या तारखांच्या नोंदी आहेत. खाली दिनांकनिहाय गट (Date-wise Groups) तयार केले आहेत.
+                  </span>
+                  <span className="font-mono tabular-nums bg-white border border-emerald-300 px-2 py-0.5 rounded text-emerald-800">
+                    {patientDateGroups.length} तारखा
+                  </span>
+                </div>
+              )}
+
+              {/* DATE-WISE GROUPS SECTION */}
+              {patientDateGroups.length === 0 ? (
+                <div className="border border-slate-800 px-4 py-8 text-center text-slate-500 rounded-lg">
+                  कोणताही जुना उपचार इतिहास उपलब्ध नाही.
+                </div>
+              ) : patientDateGroups.length > 1 ? (
+                /* MULTIPLE DATES: Grouped by Visit Date */
+                <div className="space-y-4">
+                  {patientDateGroups.map((group, gIdx) => (
+                    <div
+                      key={gIdx}
+                      className="border border-slate-800 rounded-lg overflow-hidden break-inside-avoid shadow-2xs"
+                    >
+                      {/* Date Group Header */}
+                      <div className="bg-slate-100 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 text-xs font-black text-white bg-slate-900 rounded">
+                            भेट #{patientDateGroups.length - gIdx}
+                          </span>
+                          <span className="font-extrabold text-slate-900 font-mono tabular-nums">
+                            दिनांक (Date): {group.date}
+                          </span>
+                          {group.opd && (
+                            <span className="font-bold text-slate-800 bg-white border border-slate-300 px-2 py-0.5 rounded font-mono tabular-nums">
+                              OPD #{group.opd}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-semibold">
+                          {(group.bp || (group.sugar && group.sugar !== '-')) && (
+                            <span className="bg-white border border-slate-300 px-2 py-0.5 rounded font-mono tabular-nums text-slate-800">
+                              {[
+                                group.bp ? `BP: ${group.bp}` : '',
+                                group.sugar && group.sugar !== '-' ? `BSL: ${group.sugar}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          )}
+                          <span className="bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded font-bold text-emerald-900">
+                            {group.items.length} औषधे ·{' '}
+                            <span className="font-mono font-extrabold">{group.totalQty} गोळ्या</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Medicines Table for this specific date */}
+                      <table className="w-full border-collapse text-xs sm:text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-800 text-xs text-slate-700">
+                            <th className="px-3 py-2 text-left font-bold w-12 border-r border-slate-300">
+                              अ.क्र.
+                            </th>
+                            <th className="px-3 py-2 text-left font-bold border-r border-slate-300">
+                              दिलेले औषध (Medicine Name)
+                            </th>
+                            <th className="px-3 py-2 text-right font-bold w-36">
+                              मात्रा / संख्या (Qty)
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {group.items.map((med, mIdx) => (
+                            <tr key={mIdx} className="hover:bg-slate-50/70">
+                              <td className="px-3 py-2 font-mono tabular-nums text-slate-600 border-r border-slate-200">
+                                {mIdx + 1}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-slate-900 border-r border-slate-200">
+                                {med.medicine || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums font-bold text-slate-900">
+                                {med.qty} गोळ्या
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-slate-50 border-t border-slate-800 text-xs font-bold">
+                            <td colSpan={2} className="px-3 py-2 text-right text-slate-700">
+                              या तारखेचे एकूण वाटप:
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono tabular-nums text-emerald-900 font-extrabold">
+                              {group.totalQty} गोळ्या
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* SINGLE DATE: Single Date Group Table */
+                <div className="border border-slate-800 rounded-lg overflow-hidden break-inside-avoid">
+                  <div className="bg-slate-100 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-slate-900 font-mono tabular-nums">
+                        दिनांक (Date): {patientDateGroups[0].date}
+                      </span>
+                      {patientDateGroups[0].opd && (
+                        <span className="font-bold text-slate-800 bg-white border border-slate-300 px-2 py-0.5 rounded font-mono tabular-nums">
+                          OPD #{patientDateGroups[0].opd}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs font-semibold">
+                      {(patientDateGroups[0].bp ||
+                        (patientDateGroups[0].sugar && patientDateGroups[0].sugar !== '-')) && (
+                        <span className="bg-white border border-slate-300 px-2 py-0.5 rounded font-mono tabular-nums text-slate-800">
                           {[
-                            item.bp ? `BP: ${item.bp}` : '',
-                            item.sugar && item.sugar !== '-' ? `BSL: ${item.sugar}` : '',
+                            patientDateGroups[0].bp ? `BP: ${patientDateGroups[0].bp}` : '',
+                            patientDateGroups[0].sugar && patientDateGroups[0].sugar !== '-'
+                              ? `BSL: ${patientDateGroups[0].sugar}`
+                              : '',
                           ]
                             .filter(Boolean)
-                            .join(' · ') || '-'}
+                            .join(' · ')}
+                        </span>
+                      )}
+                      <span className="bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded font-bold text-emerald-900">
+                        एकूण {patientDateGroups[0].totalQty} गोळ्या
+                      </span>
+                    </div>
+                  </div>
+
+                  <table className="w-full border-collapse text-xs sm:text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-800 text-xs text-slate-700">
+                        <th className="px-3 py-2 text-left font-bold w-12 border-r border-slate-300">
+                          अ.क्र.
+                        </th>
+                        <th className="px-3 py-2 text-left font-bold border-r border-slate-300">
+                          दिलेले औषध (Medicine Name)
+                        </th>
+                        <th className="px-3 py-2 text-right font-bold w-36">
+                          मात्रा / संख्या (Qty)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {patientDateGroups[0].items.map((med, mIdx) => (
+                        <tr key={mIdx} className="hover:bg-slate-50/70">
+                          <td className="px-3 py-2 font-mono tabular-nums text-slate-600 border-r border-slate-200">
+                            {mIdx + 1}
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-900 border-r border-slate-200">
+                            {med.medicine || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums font-bold text-slate-900">
+                            {med.qty} गोळ्या
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-50 border-t border-slate-800 text-xs font-bold">
+                        <td colSpan={2} className="px-3 py-2 text-right text-slate-700">
+                          एकूण वाटप:
                         </td>
-                        <td className="border border-slate-800 px-3 py-2 font-semibold">
-                          {item.medicine || '-'}
-                        </td>
-                        <td className="border border-slate-800 px-3 py-2 text-right font-mono tabular-nums font-bold">
-                          {item.qty || '-'}
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-emerald-900 font-extrabold">
+                          {patientDateGroups[0].totalQty} गोळ्या
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

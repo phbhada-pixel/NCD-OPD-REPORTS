@@ -210,6 +210,45 @@ export default function App() {
     });
   }, [records, fName, lName, formVillage, isOtherVillage, otherVillageName, selectedPatient]);
 
+  // Selected patient history grouped by visit date
+  const selectedPatientDateGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        date: string;
+        opd: string;
+        bp: string;
+        sugar: string;
+        items: typeof selectedPatientHistory;
+        totalQty: number;
+      }
+    >();
+
+    selectedPatientHistory.forEach((item) => {
+      const key = item.date || 'इतर दिनांक';
+      const existing = map.get(key);
+      const qtyNum = parseInt(item.qty, 10) || 0;
+      if (existing) {
+        existing.items.push(item);
+        existing.totalQty += qtyNum;
+        if (!existing.opd && item.opd) existing.opd = item.opd;
+        if (!existing.bp && item.bp) existing.bp = item.bp;
+        if (!existing.sugar && item.sugar) existing.sugar = item.sugar;
+      } else {
+        map.set(key, {
+          date: item.date,
+          opd: item.opd,
+          bp: item.bp || '',
+          sugar: item.sugar || '',
+          items: [item],
+          totalQty: qtyNum,
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [selectedPatientHistory]);
+
   // Filtered records for Date-wise Report (Section 2)
   const dateFilteredRecords = useMemo(() => {
     return records.filter((r) => {
@@ -384,9 +423,9 @@ export default function App() {
   const handleSelectPatient = (p: PatientSummary, openModal = true) => {
     setSelectedPatient(p);
     setOpdNo(nextSuggestedOpdNo);
-    setFName(p.fName);
-    setMName(p.mName);
-    setLName(p.lName);
+    setFName((p.fName || '').toUpperCase());
+    setMName((p.mName || '').toUpperCase());
+    setLName((p.lName || '').toUpperCase());
     setGender(p.gender || 'Male (पुरुष)');
     setMobile(p.mobile || '');
 
@@ -527,9 +566,9 @@ export default function App() {
     const submission: OpdSubmissionForm = {
       visitDate,
       opdNo: opdNo.trim(),
-      fName: fName.trim(),
-      mName: mName.trim(),
-      lName: lName.trim(),
+      fName: fName.trim().toUpperCase(),
+      mName: mName.trim().toUpperCase(),
+      lName: lName.trim().toUpperCase(),
       gender,
       mobile: mobile.trim(),
       village: finalVillage,
@@ -1172,6 +1211,44 @@ export default function App() {
                       <p className="text-xs text-slate-500 py-4 text-center bg-slate-50 rounded-xl">
                         या रुग्णाचा मागील औषध वाटप इतिहास उपलब्ध नाही.
                       </p>
+                    ) : selectedPatientDateGroups.length > 1 ? (
+                      <div className="max-h-[340px] overflow-y-auto space-y-3 pr-1">
+                        {selectedPatientDateGroups.map((group, gIdx) => (
+                          <div
+                            key={gIdx}
+                            className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs"
+                          >
+                            <div className="bg-slate-100/90 px-3 py-1.5 flex items-center justify-between text-xs border-b border-slate-200">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-extrabold text-slate-900 font-mono tabular-nums">
+                                  📅 {group.date}
+                                </span>
+                                {group.opd && (
+                                  <span className="text-[11px] font-semibold text-slate-600 bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono tabular-nums">
+                                    OPD #{group.opd}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-emerald-800 font-bold text-[11px] bg-emerald-50 px-2 py-0.5 rounded">
+                                {group.totalQty} गोळ्या
+                              </span>
+                            </div>
+                            <div className="divide-y divide-slate-100">
+                              {group.items.map((item, idx) => (
+                                <div
+                                  key={idx}
+                                  className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50"
+                                >
+                                  <span className="font-bold text-slate-900">{item.medicine}</span>
+                                  <span className="font-mono tabular-nums font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded shrink-0">
+                                    {item.qty} गोळ्या
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <div className="max-h-[300px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
                         {selectedPatientHistory.map((item, idx) => (
@@ -2055,11 +2132,11 @@ export default function App() {
         setOpdNo={setOpdNo}
         nextSuggestedOpdNo={nextSuggestedOpdNo}
         fName={fName}
-        setFName={setFName}
+        setFName={(val) => setFName(val.toUpperCase())}
         mName={mName}
-        setMName={setMName}
+        setMName={(val) => setMName(val.toUpperCase())}
         lName={lName}
-        setLName={setLName}
+        setLName={(val) => setLName(val.toUpperCase())}
         gender={gender}
         setGender={setGender}
         mobile={mobile}

@@ -209,10 +209,10 @@ export const OpdEntryModal: React.FC<OpdEntryModalProps> = ({
                   id="popup-f-name"
                   type="text"
                   value={fName}
-                  onChange={(e) => setFName(e.target.value)}
-                  placeholder="पहिले नाव"
+                  onChange={(e) => setFName(e.target.value.toUpperCase())}
+                  placeholder="पहिले नाव (उदा. RAMESH)"
                   required
-                  className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
+                  className="w-full h-12 px-3 text-base font-bold uppercase bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
                 />
               </div>
 
@@ -227,9 +227,9 @@ export const OpdEntryModal: React.FC<OpdEntryModalProps> = ({
                   id="popup-m-name"
                   type="text"
                   value={mName}
-                  onChange={(e) => setMName(e.target.value)}
-                  placeholder="वडिलांचे/पतीचे नाव"
-                  className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
+                  onChange={(e) => setMName(e.target.value.toUpperCase())}
+                  placeholder="वडिलांचे/पतीचे नाव (उदा. MARUTI)"
+                  className="w-full h-12 px-3 text-base font-bold uppercase bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
                 />
               </div>
 
@@ -244,9 +244,9 @@ export const OpdEntryModal: React.FC<OpdEntryModalProps> = ({
                   id="popup-l-name"
                   type="text"
                   value={lName}
-                  onChange={(e) => setLName(e.target.value)}
-                  placeholder="आडनाव"
-                  className="w-full h-12 px-3 text-base font-bold bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
+                  onChange={(e) => setLName(e.target.value.toUpperCase())}
+                  placeholder="आडनाव (उदा. PAWAR)"
+                  className="w-full h-12 px-3 text-base font-bold uppercase bg-white border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-700 shadow-xs"
                 />
               </div>
             </div>
