@@ -297,8 +297,8 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
               <div className="border border-slate-800 rounded-lg p-4 bg-slate-50/60 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-sm">
                 <div>
                   <span className="text-slate-600 font-medium">रुग्णाचे पूर्ण नाव: </span>
-                  <span className="font-black text-slate-900">
-                    {report.patient.fName} {report.patient.mName} {report.patient.lName}
+                  <span className="font-black text-slate-900 uppercase">
+                    {report.patient.fName.toUpperCase()} {report.patient.mName.toUpperCase()} {report.patient.lName.toUpperCase()}
                   </span>
                 </div>
                 <div>
@@ -576,8 +576,8 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
                         <td className="border border-slate-800 px-2.5 py-2 font-mono tabular-nums">
                           {idx + 1}
                         </td>
-                        <td className="border border-slate-800 px-2.5 py-2 font-bold">
-                          {p.fullName}
+                        <td className="border border-slate-800 px-2.5 py-2 font-bold uppercase">
+                          {(p.fullName || '').toUpperCase()}
                         </td>
                         <td className="border border-slate-800 px-2.5 py-2">{p.gender}</td>
                         <td className="border border-slate-800 px-2.5 py-2 font-mono tabular-nums">
@@ -717,8 +717,8 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ report, on
                         <td className="border border-slate-800 px-2.5 py-1.5 font-mono tabular-nums">
                           {r.opdNo}
                         </td>
-                        <td className="border border-slate-800 px-2.5 py-1.5 font-semibold">
-                          {[r.fName, r.mName, r.lName].filter(Boolean).join(' ')}
+                        <td className="border border-slate-800 px-2.5 py-1.5 font-semibold uppercase">
+                          {[r.fName, r.mName, r.lName].filter(Boolean).join(' ').toUpperCase()}
                         </td>
                         <td className="border border-slate-800 px-2.5 py-1.5">{r.village}</td>
                         <td className="border border-slate-800 px-2.5 py-1.5">{r.disease}</td>

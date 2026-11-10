@@ -251,9 +251,9 @@ export function parseRawDataRows(rows: string[][]): OpdRowRecord[] {
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
-    const fName = (row[2] || '').toString().trim();
-    const mName = (row[3] || '').toString().trim();
-    const lName = (row[4] || '').toString().trim();
+    const fName = (row[2] || '').toString().trim().toUpperCase();
+    const mName = (row[3] || '').toString().trim().toUpperCase();
+    const lName = (row[4] || '').toString().trim().toUpperCase();
     const opdNo = (row[1] || '').toString().trim();
     if (!fName && !opdNo) continue;
 
@@ -314,11 +314,11 @@ export function buildPatientSummaries(records: OpdRowRecord[]): PatientSummary[]
   >();
 
   for (const r of records) {
-    const fClean = r.fName.trim();
-    const mClean = r.mName.trim();
-    const lClean = r.lName.trim();
-    const vClean = r.village.trim();
-    const fullName = [fClean, mClean, lClean].filter(Boolean).join(' ');
+    const fClean = (r.fName || '').trim().toUpperCase();
+    const mClean = (r.mName || '').trim().toUpperCase();
+    const lClean = (r.lName || '').trim().toUpperCase();
+    const vClean = (r.village || '').trim();
+    const fullName = [fClean, mClean, lClean].filter(Boolean).join(' ').toUpperCase();
     const key = `${fClean.toLowerCase()}|${lClean.toLowerCase()}|${vClean.toLowerCase()}`;
 
     const existing = map.get(key);
@@ -366,12 +366,13 @@ export function buildPatientSummaries(records: OpdRowRecord[]): PatientSummary[]
         existing.summary.lastOpdNo = r.opdNo;
         if (mClean) existing.summary.mName = mClean;
         existing.summary.fullName = [
-          existing.summary.fName,
-          existing.summary.mName,
-          existing.summary.lName,
+          existing.summary.fName.toUpperCase(),
+          existing.summary.mName.toUpperCase(),
+          existing.summary.lName.toUpperCase(),
         ]
           .filter(Boolean)
-          .join(' ');
+          .join(' ')
+          .toUpperCase();
         existing.summary.gender = r.gender || existing.summary.gender;
         existing.summary.mobile = r.mobile || existing.summary.mobile;
         existing.summary.disease = r.disease || existing.summary.disease;

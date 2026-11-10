@@ -99,7 +99,7 @@ export const OpdEntryModal: React.FC<OpdEntryModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const fullName = [fName, mName, lName].filter(Boolean).join(' ');
+  const fullName = [fName, mName, lName].filter(Boolean).join(' ').toUpperCase();
 
   return (
     <div
@@ -115,7 +115,7 @@ export const OpdEntryModal: React.FC<OpdEntryModalProps> = ({
           <div className="min-w-0">
             <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2 truncate">
               <ClipboardList className="w-5 h-5 shrink-0" />
-              <span className="truncate">
+              <span className="truncate uppercase">
                 {fullName ? `OPD व औषध वाटप: ${fullName}` : 'नवीन बाह्यरुग्ण (OPD) नोंदणी फॉर्म'}
               </span>
             </h2>

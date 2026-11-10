@@ -921,8 +921,8 @@ export default function App() {
                 >
                   <Search className="w-5 h-5 text-emerald-800 shrink-0" />
                   <div className="min-w-0">
-                    <span className="text-sm font-bold text-emerald-950 block truncate">
-                      {selectedPatient ? selectedPatient.fullName : '🔍 जुना रुग्ण शोधा (Search)'}
+                    <span className="text-sm font-bold text-emerald-950 block truncate uppercase">
+                      {selectedPatient ? selectedPatient.fullName.toUpperCase() : '🔍 जुना रुग्ण शोधा (Search)'}
                     </span>
                     <span className="text-xs text-emerald-700 block truncate">
                       {selectedPatient
@@ -1037,8 +1037,8 @@ export default function App() {
                         >
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-slate-900 truncate">
-                                <HighlightText text={p.fullName} query={searchQuery} />
+                              <span className="text-sm font-bold text-slate-900 truncate uppercase">
+                                <HighlightText text={(p.fullName || '').toUpperCase()} query={searchQuery} />
                               </span>
                               <span className="px-2 py-0.5 text-[11px] font-extrabold text-red-700 bg-red-50 border border-red-200 rounded-md shrink-0">
                                 {p.disease}
@@ -1131,8 +1131,8 @@ export default function App() {
                           {disease}
                         </span>
                       </div>
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 mt-1">
-                        {fName} {mName} {lName}
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 mt-1 uppercase">
+                        {fName.toUpperCase()} {mName.toUpperCase()} {lName.toUpperCase()}
                       </h3>
                       <p className="text-xs text-slate-600 font-semibold mt-0.5">
                         {isOtherVillage && otherVillageName.trim()
@@ -1573,8 +1573,8 @@ export default function App() {
                             className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1.5"
                           >
                             <div className="flex items-center justify-between gap-2 text-xs">
-                              <span className="font-bold text-slate-900">
-                                {[r.fName, r.mName, r.lName].filter(Boolean).join(' ')}
+                              <span className="font-bold text-slate-900 uppercase">
+                                {[r.fName, r.mName, r.lName].filter(Boolean).join(' ').toUpperCase()}
                               </span>
                               <span className="font-mono tabular-nums font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
                                 {r.visitDate}
@@ -1625,8 +1625,8 @@ export default function App() {
                                 <td className="py-2 px-2 font-mono tabular-nums text-slate-600">
                                   {r.opdNo}
                                 </td>
-                                <td className="py-2 px-3 font-bold text-slate-900">
-                                  {[r.fName, r.mName, r.lName].filter(Boolean).join(' ')}
+                                <td className="py-2 px-3 font-bold text-slate-900 uppercase">
+                                  {[r.fName, r.mName, r.lName].filter(Boolean).join(' ').toUpperCase()}
                                 </td>
                                 <td className="py-2 px-3 text-slate-700">{r.village}</td>
                                 <td className="py-2 px-2 font-semibold text-red-700">{r.disease}</td>
@@ -1676,8 +1676,8 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <h4 className="text-sm font-extrabold text-slate-900">
-                            {patient.fullName}
+                          <h4 className="text-sm font-extrabold text-slate-900 uppercase">
+                            {patient.fullName.toUpperCase()}
                           </h4>
                           <p className="text-xs text-slate-600 mt-0.5">
                             {patient.village} · <span className="text-red-700 font-semibold">{patient.disease}</span> ·{' '}
@@ -1850,8 +1850,8 @@ export default function App() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <span className="text-sm font-bold text-slate-900 block">
-                              {index + 1}. <HighlightText text={p.fullName} query={villageSearchQuery} />
+                            <span className="text-sm font-bold text-slate-900 block uppercase">
+                              {index + 1}. <HighlightText text={(p.fullName || '').toUpperCase()} query={villageSearchQuery} />
                             </span>
                             <span className="text-xs text-slate-600 block mt-0.5">
                               <HighlightText text={p.village} query={villageSearchQuery} /> · {p.gender} ·{' '}
@@ -1916,8 +1916,8 @@ export default function App() {
                             <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500">
                               {index + 1}
                             </td>
-                            <td className="py-2.5 px-3 font-bold text-slate-900">
-                              <HighlightText text={p.fullName} query={villageSearchQuery} />
+                            <td className="py-2.5 px-3 font-bold text-slate-900 uppercase">
+                              <HighlightText text={(p.fullName || '').toUpperCase()} query={villageSearchQuery} />
                             </td>
                             <td className="py-2.5 px-2.5 text-slate-700">{p.gender}</td>
                             <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700">
